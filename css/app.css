@@ -950,6 +950,27 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+.group-pill-add {
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.775rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px dashed var(--border-color);
+  background: transparent;
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.group-pill-add:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(37, 99, 235, 0.05);
+}
+
 /* 签字签单表格样式 (A4 对阵签单) */
 .sign-sheet-table {
   width: 100%;

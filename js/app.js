@@ -27,7 +27,7 @@
   /**
    * 初始化应用
    */
-  function init() {
+  async function init() {
     cacheDom();
     bindEvents();
     loadStoredTheme();
@@ -36,8 +36,14 @@
     state.isAdmin = (localStorage.getItem('chesspairing_admin_auth') === 'true');
     updateAuthUI();
 
-    const activeGroup = TournamentStorage.getActiveGroup() || 'men';
-    switchGroup(activeGroup, false);
+    renderGroupSwitcher();
+
+    // 优先检查 URL 快照与路由参数
+    const handledSnapshot = await handleUrlSnapshotAndParams();
+    if (!handledSnapshot) {
+      const activeGroup = TournamentStorage.getActiveGroup() || 'men';
+      switchGroup(activeGroup, false);
+    }
   }
 
   /**
@@ -69,11 +75,13 @@
     els.btnLoadMen20 = document.getElementById('btnLoadMen20');
     els.btnLoadWomen7 = document.getElementById('btnLoadWomen7');
     els.btnLoadDemo8 = document.getElementById('btnLoadDemo8');
+    els.btnClearSetupRoster = document.getElementById('btnClearSetupRoster');
 
-    // 组别切换器
+    // 组别切换器与快照提示横幅
     els.headerGroupSwitcher = document.getElementById('headerGroupSwitcher');
-    els.btnGroupMen = document.getElementById('btnGroupMen');
-    els.btnGroupWomen = document.getElementById('btnGroupWomen');
+    els.bannerSnapshotView = document.getElementById('bannerSnapshotView');
+    els.snapshotViewDesc = document.getElementById('snapshotViewDesc');
+    els.btnTakeoverSnapshot = document.getElementById('btnTakeoverSnapshot');
 
     // Tab Pairing
     els.tabPairing = document.getElementById('tabPairing');
@@ -151,8 +159,17 @@
 
     els.modalShareText = document.getElementById('modalShareText');
     els.shareTextContent = document.getElementById('shareTextContent');
+    els.btnShareTabSnapshot = document.getElementById('btnShareTabSnapshot');
+    els.btnShareTabWebUrl = document.getElementById('btnShareTabWebUrl');
     els.btnShareTabPairing = document.getElementById('btnShareTabPairing');
     els.btnShareTabStandings = document.getElementById('btnShareTabStandings');
+    els.shareSectionSnapshot = document.getElementById('shareSectionSnapshot');
+    els.shareSectionWebUrl = document.getElementById('shareSectionWebUrl');
+    els.shareSectionText = document.getElementById('shareSectionText');
+    els.inputSnapshotShareUrl = document.getElementById('inputSnapshotShareUrl');
+    els.btnCopySnapshotUrl = document.getElementById('btnCopySnapshotUrl');
+    els.inputWebShareUrl = document.getElementById('inputWebShareUrl');
+    els.btnCopyWebUrl = document.getElementById('btnCopyWebUrl');
     els.btnDoCopyShareText = document.getElementById('btnDoCopyShareText');
 
     els.modalDataManage = document.getElementById('modalDataManage');
@@ -160,6 +177,8 @@
     els.btnTriggerFileImport = document.getElementById('btnTriggerFileImport');
     els.inputFileImport = document.getElementById('inputFileImport');
     els.btnConfirmResetAll = document.getElementById('btnConfirmResetAll');
+    els.boxDeleteCustomGroup = document.getElementById('boxDeleteCustomGroup');
+    els.btnDeleteCustomGroup = document.getElementById('btnDeleteCustomGroup');
 
     els.toastContainer = document.getElementById('toastContainer');
   }
@@ -184,15 +203,22 @@
     if (els.btnAdminLogout) els.btnAdminLogout.addEventListener('click', handleLogoutAdmin);
     if (els.formAdminLogin) els.formAdminLogin.addEventListener('submit', handleLoginSubmit);
 
-    // 组别切换
-    if (els.btnGroupMen) els.btnGroupMen.addEventListener('click', () => switchGroup('men'));
-    if (els.btnGroupWomen) els.btnGroupWomen.addEventListener('click', () => switchGroup('women'));
-
     // 初始准备页事件
     els.btnStartTournament.addEventListener('click', handleStartTournament);
     if (els.btnLoadMen20) els.btnLoadMen20.addEventListener('click', () => loadRosterPreset('men'));
     if (els.btnLoadWomen7) els.btnLoadWomen7.addEventListener('click', () => loadRosterPreset('women'));
     els.btnLoadDemo8.addEventListener('click', () => loadDemoPreset(8));
+    if (els.btnClearSetupRoster) {
+      els.btnClearSetupRoster.addEventListener('click', () => {
+        els.setupPlayerInput.value = '';
+        showToast('已清空名单输入框', 'info');
+      });
+    }
+
+    // 快照接管
+    if (els.btnTakeoverSnapshot) {
+      els.btnTakeoverSnapshot.addEventListener('click', handleTakeoverSnapshot);
+    }
 
     // 打印签单与导出
     if (els.btnOpenPrintSheet) els.btnOpenPrintSheet.addEventListener('click', () => openPrintSheetModal());
@@ -207,18 +233,26 @@
     if (els.btnDownloadSheetCSV) els.btnDownloadSheetCSV.addEventListener('click', handleDownloadSheetCSV);
     if (els.btnTriggerPrintSheet) els.btnTriggerPrintSheet.addEventListener('click', handleTriggerPrintSheet);
 
-    // 默认打印与分享
+    // 打印与分享
     els.btnPrint.addEventListener('click', () => window.print());
     els.btnPrintStandings.addEventListener('click', () => {
       switchTab('tabStandings');
       setTimeout(() => window.print(), 100);
     });
-    els.btnShareModal.addEventListener('click', () => openShareModal('pairing'));
-    els.btnCopyCurrentPairing.addEventListener('click', () => openShareModal('pairing'));
-    els.btnCopyStandingsText.addEventListener('click', () => openShareModal('standings'));
-    els.btnShareTabPairing.addEventListener('click', () => updateShareModalText('pairing'));
-    els.btnShareTabStandings.addEventListener('click', () => updateShareModalText('standings'));
-    els.btnDoCopyShareText.addEventListener('click', copyShareTextToClipboard);
+    els.btnShareModal.addEventListener('click', () => openShareModal());
+    els.btnCopyCurrentPairing.addEventListener('click', () => openShareModal('pairingText'));
+    els.btnCopyStandingsText.addEventListener('click', () => openShareModal('standingsText'));
+
+    // 分享模态框内部切换与复制
+    if (els.btnShareTabSnapshot) els.btnShareTabSnapshot.addEventListener('click', () => switchShareModalTab('snapshot'));
+    if (els.btnShareTabWebUrl) els.btnShareTabWebUrl.addEventListener('click', () => switchShareModalTab('webUrl'));
+    if (els.btnShareTabPairing) els.btnShareTabPairing.addEventListener('click', () => switchShareModalTab('pairing'));
+    if (els.btnShareTabStandings) els.btnShareTabStandings.addEventListener('click', () => switchShareModalTab('standings'));
+    if (els.btnCopySnapshotUrl) els.btnCopySnapshotUrl.addEventListener('click', copySnapshotUrlToClipboard);
+    if (els.btnCopyWebUrl) els.btnCopyWebUrl.addEventListener('click', copyWebUrlToClipboard);
+    if (els.btnDoCopyShareText) els.btnDoCopyShareText.addEventListener('click', copyShareTextToClipboard);
+
+    if (els.btnDeleteCustomGroup) els.btnDeleteCustomGroup.addEventListener('click', handleDeleteCustomGroup);
 
     // 对阵与推进操作
     els.btnFinishRoundAndNext.addEventListener('click', handleFinishRoundAndNext);
@@ -350,26 +384,40 @@
     } else if (tabId === 'tabPairing') {
       renderPairings();
     }
+    syncUrlState();
   }
 
   /**
-   * 解析输入的选手名单文本
+   * 解析输入的选手名单文本 (宽容过滤：序号、空行、重复项、等级分)
    */
   function parsePlayerNames(text) {
     if (!text) return [];
-    // 按换行、逗号、分号、顿号分隔
-    const rawItems = text.split(/[\n\r,，;；、]+/);
+    // 按换行、分号、逗号、顿号、制表符分隔
+    const rawItems = text.split(/[\n\r,，;；、\t]+/);
     const cleaned = [];
     const seen = new Set();
+    let duplicates = 0;
 
     rawItems.forEach(item => {
-      // 去除每行开头的编号 (如 "1. 张伟" -> "张伟")
-      let name = item.replace(/^\s*\d+[\.\、\s\-]+/, '').trim();
-      if (name && !seen.has(name)) {
-        seen.add(name);
-        cleaned.push(name);
+      let name = item.trim();
+      if (!name) return;
+      // 去除每行开头的编号 (如 "1. 张伟"、"1、张伟"、"[1] 张伟"、"(1) 张伟"、"- 张伟")
+      name = name.replace(/^(\d+[\.\、\s\-]+|\[\d+\]|\(\d+\)|\d+\s+|\-\s+)/, '').trim();
+      // 去除结尾的等级分或括号编号 (如 "张伟 1800" 或 "张伟 (1800)")
+      name = name.replace(/\s+\d{3,4}$/, '').replace(/\s*[\(\（]\d+[\)\）]$/, '').trim();
+      if (name) {
+        if (!seen.has(name)) {
+          seen.add(name);
+          cleaned.push(name);
+        } else {
+          duplicates++;
+        }
       }
     });
+
+    if (duplicates > 0) {
+      showToast(`已自动去除 ${duplicates} 个同名重复选手`, 'info');
+    }
 
     return cleaned;
   }
@@ -386,7 +434,7 @@
       return;
     }
 
-    const title = els.setupTournamentTitle.value.trim() || '国际象棋俱乐部积分赛';
+    const title = els.setupTournamentTitle.value.trim() || `${TournamentStorage.getGroupName(state.groupId)} 积分赛`;
     state.title = title;
 
     // 构建选手列表
@@ -408,32 +456,26 @@
       saveState();
       renderApp();
       switchTab('tabPairing');
-      showToast(`比赛正式开始！已成功生成第 1 轮对阵 (${r1.pairings.length} 台)`, 'success');
+      const byeInfo = (names.length % 2 !== 0) ? '，含 1 人轮空获胜' : '';
+      showToast(`比赛正式开始！已成功生成第 1 轮对阵 (${r1.pairings.length} 台${byeInfo})`, 'success');
+      syncUrlState();
     } catch (err) {
       showToast('编排失败: ' + err.message, 'danger');
     }
   }
 
   /**
-   * 切换赛事组别 (男子组 / 女子组)
+   * 切换赛事组别 (支持男子组、女子组与所有自定义组别)
    */
   function switchGroup(groupId, shouldSaveCurrent = true) {
-    if (shouldSaveCurrent) {
+    if (shouldSaveCurrent && !state.isSnapshot) {
       saveState();
     }
     state.groupId = groupId;
     TournamentStorage.saveActiveGroup(groupId);
 
-    // 更新顶栏按钮高亮
-    if (els.btnGroupMen && els.btnGroupWomen) {
-      if (groupId === 'men') {
-        els.btnGroupMen.classList.add('active');
-        els.btnGroupWomen.classList.remove('active');
-      } else {
-        els.btnGroupWomen.classList.add('active');
-        els.btnGroupMen.classList.remove('active');
-      }
-    }
+    // 重新渲染顶栏按钮高亮
+    renderGroupSwitcher();
 
     const saved = TournamentStorage.loadTournament(groupId);
     if (saved && saved.players && saved.players.length > 0) {
@@ -441,10 +483,10 @@
       state.groupId = groupId;
       state.historyViewingRound = state.rounds.length || 1;
       renderApp();
-      showToast(`已切换至【${groupId === 'men' ? '男子组' : '女子组'}】比赛`, 'info');
+      showToast(`已切换至【${TournamentStorage.getGroupName(groupId)}】比赛`, 'info');
     } else {
       // 当前组别尚未开始比赛
-      state.title = groupId === 'men' ? '弈星国际象棋俱乐部周积分赛 (男子组)' : '弈星国际象棋俱乐部周积分赛 (女子组)';
+      state.title = `${TournamentStorage.getGroupName(groupId)} 积分赛`;
       state.status = 'setup';
       state.players = [];
       state.rounds = [];
@@ -454,16 +496,223 @@
         els.setupTournamentTitle.value = state.title;
       }
       if (els.setupPlayerInput) {
-        if (groupId === 'men' && SampleTournamentData.menPlayerNames) {
-          els.setupPlayerInput.value = SampleTournamentData.menPlayerNames.join('\n');
-        } else if (groupId === 'women' && SampleTournamentData.womenPlayerNames) {
-          els.setupPlayerInput.value = SampleTournamentData.womenPlayerNames.join('\n');
-        } else {
-          els.setupPlayerInput.value = '';
-        }
+        // 默认名单留空！由用户自行粘贴或录入
+        els.setupPlayerInput.value = '';
       }
       renderApp();
-      showToast(`已切换至【${groupId === 'men' ? '男子组' : '女子组'}】，已自动载入选手名单`, 'info');
+      showToast(`已切换至【${TournamentStorage.getGroupName(groupId)}】，名单已留空，请输入或粘贴棋手名单`, 'info');
+    }
+    syncUrlState();
+  }
+
+  /**
+   * 同步 URL 地址栏状态 (不刷新页面)
+   */
+  function syncUrlState() {
+    if (state.isSnapshot) return; // 处于快照查阅模式时不覆盖 URL
+    try {
+      const url = new URL(window.location.href);
+      if (state.groupId) {
+        url.searchParams.set('group', state.groupId);
+      }
+      if (state.activeTab) {
+        const tabShort = state.activeTab.replace(/^tab/, '').toLowerCase();
+        url.searchParams.set('tab', tabShort);
+      }
+      if (state.rounds && state.rounds.length > 0) {
+        const rNum = state.activeTab === 'tabHistory' ? (state.historyViewingRound || state.rounds.length) : state.rounds.length;
+        url.searchParams.set('round', String(rNum));
+      } else {
+        url.searchParams.delete('round');
+      }
+      // 清空单次触发的临时参数
+      url.searchParams.delete('sheet');
+      url.searchParams.delete('title');
+      url.searchParams.delete('players');
+      window.history.replaceState(null, '', url.toString());
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  /**
+   * 处理 URL 快照还原与深度链接参数
+   */
+  async function handleUrlSnapshotAndParams() {
+    // 1. 检查 Hash 是否携带数据快照 (#d=... 或 #data=...)
+    const hash = window.location.hash || '';
+    if (hash.includes('d=') || hash.includes('data=')) {
+      const match = hash.match(/[#&]?(d|data)=([^&]+)/);
+      if (match && match[2]) {
+        try {
+          const rawHashStr = decodeURIComponent(match[2]);
+          const decompressed = await TournamentStorage.decompressTournamentState(rawHashStr);
+          if (decompressed && decompressed.players && decompressed.players.length > 0) {
+            state.isSnapshot = true;
+            state.isAdmin = false; // 快照链接默认以只读访客模式打开
+            updateAuthUI();
+            Object.assign(state, decompressed);
+            state.historyViewingRound = state.rounds.length || 1;
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const reqRound = urlParams.get('round');
+            if (reqRound) {
+              const r = parseInt(reqRound, 10);
+              if (!isNaN(r) && r >= 1) {
+                state.historyViewingRound = r;
+              }
+            }
+            const reqTab = urlParams.get('tab');
+            if (reqTab) {
+              const targetTab = reqTab.startsWith('tab') ? reqTab : ('tab' + reqTab.charAt(0).toUpperCase() + reqTab.slice(1));
+              state.activeTab = targetTab;
+            }
+
+            renderGroupSwitcher();
+            renderApp();
+            switchTab(state.activeTab || 'tabPairing');
+
+            if (els.bannerSnapshotView) {
+              els.bannerSnapshotView.style.display = 'flex';
+              if (els.snapshotViewDesc) {
+                els.snapshotViewDesc.textContent = `【${state.title}】共 ${state.players.length} 人，已完成 ${state.rounds.length} 轮比赛`;
+              }
+            }
+
+            if (urlParams.get('sheet') === '1') {
+              openPrintSheetModal(state.historyViewingRound);
+            }
+
+            showToast('已成功通过分享快照载入比赛！当前为访客查阅模式。', 'success');
+            return true;
+          }
+        } catch (e) {
+          console.error('加载分享快照异常:', e);
+        }
+      }
+    }
+
+    // 2. 无快照时，检查 URL 搜索参数
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramGroup = urlParams.get('group');
+    const paramTitle = urlParams.get('title');
+    const paramPlayers = urlParams.get('players');
+    const paramRound = urlParams.get('round');
+    const paramTab = urlParams.get('tab');
+    const paramSheet = urlParams.get('sheet');
+
+    const targetGroup = paramGroup || TournamentStorage.getActiveGroup() || 'men';
+    switchGroup(targetGroup, false);
+
+    // 如果是通过链接携带了自定义名单与标题 (Magic Link 快速开赛)
+    if (paramTitle && state.status === 'setup' && els.setupTournamentTitle) {
+      els.setupTournamentTitle.value = paramTitle;
+      state.title = paramTitle;
+    }
+    if (paramPlayers && state.status === 'setup' && els.setupPlayerInput) {
+      const pList = paramPlayers.split(/[,，|;]/).map(s => s.trim()).filter(Boolean);
+      els.setupPlayerInput.value = pList.join('\n');
+      showToast(`已通过链接快捷载入 ${pList.length} 名参赛选手！`, 'info');
+    }
+
+    if (paramRound) {
+      const r = parseInt(paramRound, 10);
+      if (!isNaN(r) && r >= 1) {
+        state.historyViewingRound = r;
+      }
+    }
+
+    if (paramTab) {
+      const targetTab = paramTab.startsWith('tab') ? paramTab : ('tab' + paramTab.charAt(0).toUpperCase() + paramTab.slice(1));
+      switchTab(targetTab);
+    }
+
+    if (paramSheet === '1') {
+      openPrintSheetModal(state.historyViewingRound);
+    }
+
+    return false;
+  }
+
+  /**
+   * 将当前查阅的快照保存并接管到本地浏览器
+   */
+  function handleTakeoverSnapshot() {
+    if (confirm(`是否将当前查阅的【${state.title}】保存至您的浏览器本地？\n\n保存后您可以在当前设备继续录入后续比分并进行编排。`)) {
+      TournamentStorage.saveTournament(state, state.groupId);
+      state.isSnapshot = false;
+      if (els.bannerSnapshotView) els.bannerSnapshotView.style.display = 'none';
+      showToast('🎉 已成功转存至本地浏览器！您现在可以进行比赛管理。', 'success');
+      syncUrlState();
+    }
+  }
+
+  /**
+   * 动态渲染顶栏赛事组别 Pill 切换器 (支持男子组、女子组与用户自定义新建组)
+   */
+  function renderGroupSwitcher() {
+    if (!els.headerGroupSwitcher) return;
+    const groups = TournamentStorage.getGroups();
+    els.headerGroupSwitcher.innerHTML = '';
+
+    groups.forEach(g => {
+      const btn = document.createElement('button');
+      btn.className = 'group-pill' + (g.id === state.groupId ? ' active' : '');
+      btn.textContent = g.name;
+      btn.dataset.groupId = g.id;
+      btn.title = `切换至 ${g.name} (各组独立存储、编排与计分)`;
+      btn.addEventListener('click', () => {
+        if (state.groupId !== g.id) {
+          switchGroup(g.id);
+        }
+      });
+      els.headerGroupSwitcher.appendChild(btn);
+    });
+
+    // ➕ 新建组别/赛事按钮
+    const btnAdd = document.createElement('button');
+    btnAdd.className = 'group-pill-add';
+    btnAdd.title = '新建组别或自定义赛事 (如：少儿组、U10组、公开组)';
+    btnAdd.innerHTML = '<span>➕</span> <span>新建组</span>';
+    btnAdd.addEventListener('click', handleCreateNewGroup);
+    els.headerGroupSwitcher.appendChild(btnAdd);
+
+    // 控制模态框中的删除组别按钮展示
+    if (els.boxDeleteCustomGroup) {
+      if (state.groupId !== 'men' && state.groupId !== 'women') {
+        els.boxDeleteCustomGroup.style.display = 'block';
+      } else {
+        els.boxDeleteCustomGroup.style.display = 'none';
+      }
+    }
+  }
+
+  function handleCreateNewGroup() {
+    const name = prompt('请输入新比赛或组别名称 (例如：少儿组、U10精英组、公开组)：');
+    if (!name || !name.trim()) return;
+    const cleanName = name.trim();
+    const newGroup = TournamentStorage.addGroup(cleanName);
+    if (newGroup) {
+      renderGroupSwitcher();
+      switchGroup(newGroup.id);
+      showToast(`已成功创建【${cleanName}】，请录入选手名单开启编排！`, 'success');
+    }
+  }
+
+  function handleDeleteCustomGroup() {
+    if (!requireAdmin('删除当前组别')) return;
+    if (state.groupId === 'men' || state.groupId === 'women') {
+      showToast('系统预置的男子组与女子组不可删除！', 'warning');
+      return;
+    }
+    const gName = TournamentStorage.getGroupName(state.groupId);
+    if (confirm(`确定要彻底删除【${gName}】及其所有历史轮次数据吗？此操作无法撤销！`)) {
+      const remaining = TournamentStorage.deleteGroup(state.groupId);
+      closeModal(els.modalDataManage);
+      const nextGroupId = (remaining[0] && remaining[0].id) || 'men';
+      renderGroupSwitcher();
+      switchGroup(nextGroupId);
+      showToast(`已删除组别【${gName}】`, 'info');
     }
   }
 
@@ -476,20 +725,14 @@
       state.title = '弈星国际象棋俱乐部周积分赛 (男子组)';
       els.setupTournamentTitle.value = state.title;
       els.setupPlayerInput.value = SampleTournamentData.menPlayerNames.join('\n');
-      if (els.btnGroupMen && els.btnGroupWomen) {
-        els.btnGroupMen.classList.add('active');
-        els.btnGroupWomen.classList.remove('active');
-      }
+      renderGroupSwitcher();
       showToast('已填入男子组名单 (共 20 人)！', 'info');
     } else if (type === 'women') {
       state.groupId = 'women';
       state.title = '弈星国际象棋俱乐部周积分赛 (女子组)';
       els.setupTournamentTitle.value = state.title;
       els.setupPlayerInput.value = SampleTournamentData.womenPlayerNames.join('\n');
-      if (els.btnGroupMen && els.btnGroupWomen) {
-        els.btnGroupWomen.classList.add('active');
-        els.btnGroupMen.classList.remove('active');
-      }
+      renderGroupSwitcher();
       showToast('已填入女子组名单 (共 7 人)！', 'info');
     }
   }
@@ -1136,6 +1379,7 @@
       btn.addEventListener('click', () => {
         state.historyViewingRound = parseInt(btn.dataset.historyRound, 10);
         renderHistory();
+        syncUrlState();
       });
     });
 
@@ -1290,23 +1534,94 @@
   }
 
   /**
-   * 微信分享模态框
+   * 赛事分享与链接导出模态框
    */
-  function openShareModal(type) {
-    updateShareModalText(type);
+  async function openShareModal(type) {
+    if (state.status === 'setup') {
+      showToast('比赛尚未开始，开始第 1 轮后即可生成对阵与分享！', 'warning');
+      return;
+    }
+
+    // 默认展示快照标签页或指定标签页
+    if (type === 'pairingText') {
+      switchShareModalTab('pairing');
+    } else if (type === 'standingsText') {
+      switchShareModalTab('standings');
+    } else if (type === 'webUrl') {
+      switchShareModalTab('webUrl');
+    } else {
+      switchShareModalTab('snapshot');
+    }
+
     openModal(els.modalShareText);
+
+    // 异步生成压缩数据快照链接
+    if (els.inputSnapshotShareUrl) {
+      els.inputSnapshotShareUrl.value = '正在生成压缩数据快照...';
+      const snapUrl = await TournamentStorage.buildShareUrl({
+        groupId: state.groupId,
+        round: state.rounds.length,
+        tab: state.activeTab,
+        withSnapshot: true,
+        state: state
+      });
+      els.inputSnapshotShareUrl.value = snapUrl || window.location.href;
+    }
+
+    // 生成当前页面纯参数网址
+    if (els.inputWebShareUrl) {
+      const webUrl = await TournamentStorage.buildShareUrl({
+        groupId: state.groupId,
+        round: state.rounds.length,
+        tab: state.activeTab
+      });
+      els.inputWebShareUrl.value = webUrl;
+    }
   }
 
-  function updateShareModalText(type) {
-    if (type === 'standings') {
-      els.btnShareTabStandings.classList.add('active');
-      els.btnShareTabPairing.classList.remove('active');
+  function switchShareModalTab(tabKey) {
+    // 隐藏所有 section
+    if (els.shareSectionSnapshot) els.shareSectionSnapshot.style.display = 'none';
+    if (els.shareSectionWebUrl) els.shareSectionWebUrl.style.display = 'none';
+    if (els.shareSectionText) els.shareSectionText.style.display = 'none';
+
+    // 移除所有 active 样式
+    const allTabBtns = [els.btnShareTabSnapshot, els.btnShareTabWebUrl, els.btnShareTabPairing, els.btnShareTabStandings];
+    allTabBtns.forEach(btn => {
+      if (btn) {
+        btn.classList.remove('active', 'btn-primary');
+        btn.classList.add('btn-outline');
+      }
+    });
+
+    if (tabKey === 'snapshot') {
+      if (els.shareSectionSnapshot) els.shareSectionSnapshot.style.display = 'block';
+      if (els.btnShareTabSnapshot) {
+        els.btnShareTabSnapshot.classList.add('active', 'btn-primary');
+        els.btnShareTabSnapshot.classList.remove('btn-outline');
+      }
+    } else if (tabKey === 'webUrl') {
+      if (els.shareSectionWebUrl) els.shareSectionWebUrl.style.display = 'block';
+      if (els.btnShareTabWebUrl) {
+        els.btnShareTabWebUrl.classList.add('active', 'btn-primary');
+        els.btnShareTabWebUrl.classList.remove('btn-outline');
+      }
+    } else if (tabKey === 'standings') {
+      if (els.shareSectionText) els.shareSectionText.style.display = 'block';
+      if (els.btnShareTabStandings) {
+        els.btnShareTabStandings.classList.add('active', 'btn-primary');
+        els.btnShareTabStandings.classList.remove('btn-outline');
+      }
       const standings = SwissEngine.calculateStandings(state.players, state.rounds);
       const rNum = state.rounds.length;
       els.shareTextContent.value = TournamentStorage.formatStandingsShareText(state.title, rNum, standings);
     } else {
-      els.btnShareTabPairing.classList.add('active');
-      els.btnShareTabStandings.classList.remove('active');
+      // pairing
+      if (els.shareSectionText) els.shareSectionText.style.display = 'block';
+      if (els.btnShareTabPairing) {
+        els.btnShareTabPairing.classList.add('active', 'btn-primary');
+        els.btnShareTabPairing.classList.remove('btn-outline');
+      }
       const currentR = state.rounds[state.currentRoundIndex];
       if (currentR) {
         const leavePlayers = state.players.filter(p => p.status === 'leave');
@@ -1317,29 +1632,50 @@
     }
   }
 
-  function copyShareTextToClipboard() {
-    const text = els.shareTextContent.value;
+  function copySnapshotUrlToClipboard() {
+    const text = els.inputSnapshotShareUrl ? els.inputSnapshotShareUrl.value : '';
     if (!text) return;
+    copyStringToClipboard(text, '✅ 已复制跨设备快照链接！发到微信群后任何手机点开均可直接查看排阵！');
+  }
 
+  function copyWebUrlToClipboard() {
+    const text = els.inputWebShareUrl ? els.inputWebShareUrl.value : '';
+    if (!text) return;
+    copyStringToClipboard(text, '✅ 已复制当前页面网址！');
+  }
+
+  function copyShareTextToClipboard() {
+    const text = els.shareTextContent ? els.shareTextContent.value : '';
+    if (!text) return;
+    copyStringToClipboard(text, '✅ 已成功复制文本到剪贴板，可直接粘贴发至微信群！');
+  }
+
+  function copyStringToClipboard(str, successMsg) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        showToast('✅ 已成功复制到剪贴板，可直接粘贴发至微信群！', 'success');
+      navigator.clipboard.writeText(str).then(() => {
+        showToast(successMsg || '✅ 已复制到剪贴板！', 'success');
       }).catch(() => {
-        fallbackCopyText(els.shareTextContent);
+        fallbackCopyString(str, successMsg);
       });
     } else {
-      fallbackCopyText(els.shareTextContent);
+      fallbackCopyString(str, successMsg);
     }
   }
 
-  function fallbackCopyText(textarea) {
-    textarea.select();
+  function fallbackCopyString(str, successMsg) {
+    const ta = document.createElement('textarea');
+    ta.value = str;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
     try {
       document.execCommand('copy');
-      showToast('✅ 已成功复制到剪贴板！', 'success');
+      showToast(successMsg || '✅ 已复制到剪贴板！', 'success');
     } catch (e) {
-      showToast('自动复制失败，请手动长按全选复制！', 'warning');
+      showToast('自动复制失败，请手动长按复制！', 'warning');
     }
+    document.body.removeChild(ta);
   }
 
   /**

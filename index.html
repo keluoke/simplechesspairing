@@ -19,10 +19,9 @@
         </div>
       </div>
 
-      <!-- 赛事组别切换 (男子组 / 女子组 独立赛制) -->
-      <div class="group-switcher" id="headerGroupSwitcher" title="切换赛事组别 (两组独立存储、编排与计分)">
-        <button class="group-pill active" data-group-id="men" id="btnGroupMen">👦 男子组</button>
-        <button class="group-pill" data-group-id="women" id="btnGroupWomen">👧 女子组</button>
+      <!-- 赛事组别切换 (支持男子组、女子组与用户自定义组别) -->
+      <div class="group-switcher" id="headerGroupSwitcher" title="切换赛事组别 (各组独立存储、编排与计分)">
+        <!-- 由 JS 动态渲染各组别 Pill 与新建按钮 -->
       </div>
 
       <div class="header-badges">
@@ -95,6 +94,18 @@
       <hr style="margin: 0.5rem 0 1rem 0;">
     </div>
 
+    <!-- 跨浏览器/跨设备分享快照提示横幅 (只读展示，允许一键接管) -->
+    <div class="alert-banner alert-info" id="bannerSnapshotView" style="display: none; margin: 0 0 1rem 0; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+      <div>
+        <span>📢 <strong>您正在查阅比赛分享快照 (只读访客模式)</strong>：</span>
+        <span id="snapshotViewDesc"></span>
+        <span style="font-size: 0.8rem; margin-left: 0.5rem; opacity: 0.85;">(数据已完整还原，无需裁判在线)</span>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btnTakeoverSnapshot" title="将此比赛完整转存至当前浏览器本地">
+        <span>📥</span> 保存并接管比赛
+      </button>
+    </div>
+
     <!-- 视图0: 初始准备引导界面 (尚未开始比赛时显示) -->
     <section class="tab-panel active" id="viewSetup" style="display: none;">
       <div class="setup-hero">
@@ -109,20 +120,16 @@
               <button class="btn btn-primary btn-sm" id="btnLoadMen20">👦 载入男子名单 (20人)</button>
               <button class="btn btn-primary btn-sm" id="btnLoadWomen7">👧 载入女子名单 (7人)</button>
               <button class="btn btn-outline btn-sm" id="btnLoadDemo8">🎲 8人示例</button>
+              <button class="btn btn-outline btn-sm" id="btnClearSetupRoster" title="一键清空名单">🧹 清空名单</button>
             </div>
           </div>
           <div class="card-body">
             <div class="form-group">
-              <label class="form-label" for="setupPlayerInput">棋手名单 (每行一人，或用逗号、空格分隔)：</label>
-              <textarea class="form-control" id="setupPlayerInput" rows="9" placeholder="张伟
-王芳
-李明
-刘洋
-陈晨
-赵磊
-孙悦
-周强"></textarea>
-              <div class="form-hint">提示：建议偶数人参赛。若为奇数人，系统将按照瑞士制规则自动安排轮空（轮空者自动获得1分）。</div>
+              <label class="form-label" for="setupPlayerInput">棋手名单 (每行一人，可直接从 Excel 复制一列粘贴)：</label>
+              <textarea class="form-control" id="setupPlayerInput" rows="9" placeholder="请在此输入或粘贴选手名单，每行一人。
+支持直接从 Excel 或微信复制粘贴，系统会自动过滤序号（如 1. 张三）、去除重复项；
+支持附带等级分（如：张三 1600）。"></textarea>
+              <div class="form-hint">提示：建议偶数人参赛。若为奇数人，系统将按标准瑞士制规则自动安排未轮空过的选手轮空获胜（得1分）。</div>
             </div>
 
             <div class="form-group">
@@ -385,24 +392,64 @@
   </div>
 
   <!-- 模态框: 复制分享文本 -->
+  <!-- 模态框: 赛事分享与链接导出 -->
   <div class="modal-backdrop" id="modalShareText">
-    <div class="modal-dialog" style="max-width: 600px;">
+    <div class="modal-dialog" style="max-width: 660px;">
       <div class="modal-header">
-        <div class="modal-title">📋 复制对阵 / 排行榜文本 (微信群分享)</div>
+        <div class="modal-title">📋 赛事分享与链接导出</div>
         <button class="btn btn-icon" data-close-modal="modalShareText">✕</button>
       </div>
       <div class="modal-body">
-        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
-          <button class="btn btn-outline btn-sm active" id="btnShareTabPairing">当前对阵单</button>
-          <button class="btn btn-outline btn-sm" id="btnShareTabStandings">积分排行榜</button>
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
+          <button class="btn btn-primary btn-sm" id="btnShareTabSnapshot">🌐 跨设备快照链接 (推荐发微信群)</button>
+          <button class="btn btn-outline btn-sm" id="btnShareTabWebUrl">🔗 当前页面网址</button>
+          <button class="btn btn-outline btn-sm" id="btnShareTabPairing">💬 微信对阵文本</button>
+          <button class="btn btn-outline btn-sm" id="btnShareTabStandings">📊 微信排行榜文本</button>
         </div>
-        <textarea class="form-control" id="shareTextContent" rows="12" style="font-family: monospace; font-size: 0.85rem;" readonly></textarea>
+
+        <!-- 选项1: 跨设备快照分享链接 -->
+        <div id="shareSectionSnapshot" style="display: block;">
+          <div class="alert-banner alert-info" style="margin-bottom: 0.75rem; font-size: 0.825rem; line-height: 1.45;">
+            💡 <strong>跨浏览器/免服务器分享神技</strong>：该链接已将当前组别的<strong>全套对阵、轮次与积分数据无损压缩进 URL</strong>。发到微信群后，家长和棋手用任何手机直接点开，立即看到最新编排与积分，<strong>无需裁判设备在线，换任何新浏览器也绝不丢失数据</strong>！
+          </div>
+          <div class="form-group" style="margin-bottom: 0.5rem;">
+            <label class="form-label" for="inputSnapshotShareUrl" style="font-size: 0.85rem;">跨设备只读快照链接：</label>
+            <div style="display: flex; gap: 0.5rem;">
+              <input type="text" class="form-control" id="inputSnapshotShareUrl" readonly style="font-family: monospace; font-size: 0.8rem;">
+              <button class="btn btn-primary" id="btnCopySnapshotUrl" style="white-space: nowrap;">
+                <span>📋</span> 复制快照链接
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 选项2: 普通带参网址 -->
+        <div id="shareSectionWebUrl" style="display: none;">
+          <p style="font-size: 0.825rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+            本设备当前视图的快捷网址（携带当前组别、轮次与视图参数，适合在当前浏览器保存书签）：
+          </p>
+          <div class="form-group" style="margin-bottom: 0.5rem;">
+            <div style="display: flex; gap: 0.5rem;">
+              <input type="text" class="form-control" id="inputWebShareUrl" readonly style="font-family: monospace; font-size: 0.8rem;">
+              <button class="btn btn-primary" id="btnCopyWebUrl" style="white-space: nowrap;">
+                <span>📋</span> 复制网址
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 选项3: 微信排版纯文本 -->
+        <div id="shareSectionText" style="display: none;">
+          <textarea class="form-control" id="shareTextContent" rows="11" style="font-family: monospace; font-size: 0.825rem;" readonly></textarea>
+          <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem;">
+            <button class="btn btn-primary btn-sm" id="btnDoCopyShareText">
+              <span>📋</span> 一键复制文本到剪贴板
+            </button>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-outline" data-close-modal="modalShareText">关闭</button>
-        <button class="btn btn-primary" id="btnDoCopyShareText">
-          <span>📋</span> 一键复制到剪贴板
-        </button>
       </div>
     </div>
   </div>
@@ -432,6 +479,12 @@
           <h4 style="font-size: 0.95rem; margin-bottom: 0.25rem; color: var(--danger);">3. 重置 / 清空当前比赛</h4>
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">清空当前比赛所有数据并重新开始全新比赛。</p>
           <button class="btn btn-danger btn-sm" id="btnConfirmResetAll">⚠️ 清空并开始全新比赛</button>
+        </div>
+        <div id="boxDeleteCustomGroup" style="display: none;">
+          <hr style="border: none; border-top: 1px solid var(--border-color);">
+          <h4 style="font-size: 0.95rem; margin-bottom: 0.25rem; color: var(--danger);">4. 删除当前自定义组别</h4>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">彻底删除此组别及其本地所有轮次与数据。</p>
+          <button class="btn btn-outline btn-sm" id="btnDeleteCustomGroup" style="color: var(--danger); border-color: var(--danger);">🗑️ 删除当前组别</button>
         </div>
       </div>
       <div class="modal-footer">

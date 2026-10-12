@@ -13,6 +13,74 @@
 
   const BASE_STORAGE_KEY = 'chesspairing_tournament_data_v1';
   const ACTIVE_GROUP_KEY = 'chesspairing_active_group_v1';
+  const GROUPS_STORAGE_KEY = 'chesspairing_groups_v1';
+
+  /**
+   * 获取所有组别列表 (支持用户自定义新建组别)
+   */
+  function getGroups() {
+    try {
+      const raw = localStorage.getItem(GROUPS_STORAGE_KEY);
+      if (raw) {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list) && list.length > 0) return list;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return [
+      { id: 'men', name: '👦 男子组' },
+      { id: 'women', name: '👧 女子组' }
+    ];
+  }
+
+  /**
+   * 保存组别列表
+   */
+  function saveGroups(groups) {
+    try {
+      localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(groups));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  /**
+   * 添加新组别
+   */
+  function addGroup(name) {
+    const cleanName = (name || '').trim();
+    if (!cleanName) return null;
+    const groups = getGroups();
+    const newId = 'grp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const newGroup = { id: newId, name: cleanName };
+    groups.push(newGroup);
+    saveGroups(groups);
+    return newGroup;
+  }
+
+  /**
+   * 删除组别
+   */
+  function deleteGroup(groupId) {
+    let groups = getGroups();
+    groups = groups.filter(g => g.id !== groupId);
+    if (groups.length === 0) {
+      groups = [{ id: 'men', name: '👦 男子组' }];
+    }
+    saveGroups(groups);
+    clearTournament(groupId);
+    return groups;
+  }
+
+  /**
+   * 获取指定组别的显示名称
+   */
+  function getGroupName(groupId) {
+    const groups = getGroups();
+    const found = groups.find(g => g.id === groupId);
+    return found ? found.name : (groupId === 'women' ? '👧 女子组' : '👦 男子组');
+  }
 
   function getStorageKey(groupId) {
     if (!groupId || groupId === 'default') {
@@ -22,7 +90,7 @@
   }
 
   /**
-   * 保存当前选中的组别标识 (如 'men', 'women', 'default')
+   * 保存当前选中的组别标识 (如 'men', 'women', 或自定义组别ID)
    */
   function saveActiveGroup(groupId) {
     try {
@@ -34,7 +102,10 @@
 
   function getActiveGroup() {
     try {
-      return localStorage.getItem(ACTIVE_GROUP_KEY) || 'men';
+      const saved = localStorage.getItem(ACTIVE_GROUP_KEY);
+      if (saved) return saved;
+      const groups = getGroups();
+      return (groups[0] && groups[0].id) || 'men';
     } catch (e) {
       return 'men';
     }
@@ -175,7 +246,179 @@
     return text;
   }
 
+  /**
+   * 将赛事关键数据压缩为 URL-safe 字符串 (用于跨浏览器/零后端分享)
+   */
+  async function compressTournamentState(data) {
+    try {
+      if (!data) return null;
+      // 提取核心数据，精简键名与体积
+      const payload = {
+        v: 1,
+        title: data.title || '',
+        groupId: data.groupId || 'men',
+        status: data.status || 'in_progress',
+        currentRoundIndex: data.currentRoundIndex || 0,
+        players: (data.players || []).map(p => ({
+          i: p.id,
+          n: p.name,
+          s: p.initialSeed || p.id,
+          st: p.status === 'leave' ? 'l' : 'a'
+        })),
+        rounds: (data.rounds || []).map(r => ({
+          rn: r.roundNumber,
+          p: (r.pairings || []).map(pair => {
+            if (pair.isBye) {
+              return { b: pair.board, by: 1, p: pair.playerId, res: pair.result || '1-0' };
+            }
+            return {
+              b: pair.board,
+              w: pair.whiteId,
+              bl: pair.blackId,
+              res: pair.result || null
+            };
+          })
+        }))
+      };
+
+      const jsonStr = JSON.stringify(payload);
+
+      if (typeof CompressionStream !== 'undefined') {
+        const cs = new CompressionStream('deflate-raw');
+        const writer = cs.writable.getWriter();
+        writer.write(new TextEncoder().encode(jsonStr));
+        writer.close();
+        const buffer = await new Response(cs.readable).arrayBuffer();
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return 'c_' + btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      } else {
+        // Fallback: utf-8 base64url
+        return 'r_' + btoa(unescape(encodeURIComponent(jsonStr))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      }
+    } catch (e) {
+      console.error('压缩数据失败:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 从 URL-safe 字符串解压并还原赛事数据
+   */
+  async function decompressTournamentState(str) {
+    try {
+      if (!str) return null;
+      let jsonStr = '';
+      if (str.startsWith('c_')) {
+        const b64 = str.slice(2).replace(/-/g, '+').replace(/_/g, '/');
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        if (typeof DecompressionStream !== 'undefined') {
+          const ds = new DecompressionStream('deflate-raw');
+          const writer = ds.writable.getWriter();
+          writer.write(bytes);
+          writer.close();
+          jsonStr = await new Response(ds.readable).text();
+        } else {
+          return null;
+        }
+      } else {
+        const clean = str.startsWith('r_') ? str.slice(2) : str;
+        const b64 = clean.replace(/-/g, '+').replace(/_/g, '/');
+        jsonStr = decodeURIComponent(escape(atob(b64)));
+      }
+
+      const p = JSON.parse(jsonStr);
+      if (!p || !p.players) return null;
+
+      // 还原为完整结构
+      const playerMap = new Map();
+      const players = p.players.map(item => {
+        const obj = {
+          id: item.i,
+          name: item.n,
+          initialSeed: item.s,
+          status: item.st === 'l' ? 'leave' : 'active'
+        };
+        playerMap.set(obj.id, obj);
+        return obj;
+      });
+
+      const rounds = (p.rounds || []).map(r => ({
+        roundNumber: r.rn,
+        pairings: (r.p || []).map(pair => {
+          if (pair.by) {
+            const player = playerMap.get(pair.p) || { id: pair.p, name: '未知' };
+            return {
+              board: pair.b,
+              isBye: true,
+              playerId: player.id,
+              playerName: player.name,
+              playerScore: 0,
+              result: pair.res || '1-0'
+            };
+          }
+          const white = playerMap.get(pair.w) || { id: pair.w, name: '未知' };
+          const black = playerMap.get(pair.bl) || { id: pair.bl, name: '未知' };
+          return {
+            board: pair.b,
+            whiteId: white.id,
+            whiteName: white.name,
+            whiteScore: 0,
+            blackId: black.id,
+            blackName: black.name,
+            blackScore: 0,
+            result: pair.res
+          };
+        })
+      }));
+
+      return {
+        title: p.title,
+        groupId: p.groupId,
+        status: p.status,
+        currentRoundIndex: p.currentRoundIndex,
+        players: players,
+        rounds: rounds
+      };
+    } catch (e) {
+      console.error('解压数据失败:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 构建多端/多页面分享链接
+   */
+  async function buildShareUrl(options = {}) {
+    const { groupId, round, tab, isSheet, withSnapshot, state } = options;
+    const url = new URL(window.location.href.split('#')[0]);
+    if (groupId) url.searchParams.set('group', groupId);
+    if (round) url.searchParams.set('round', String(round));
+    if (tab) url.searchParams.set('tab', tab);
+    if (isSheet) url.searchParams.set('sheet', '1');
+
+    if (withSnapshot && state) {
+      const hashStr = await compressTournamentState(state);
+      if (hashStr) {
+        url.hash = `d=${hashStr}`;
+      }
+    }
+    return url.toString();
+  }
+
   return {
+    getGroups,
+    saveGroups,
+    addGroup,
+    deleteGroup,
+    getGroupName,
     saveActiveGroup,
     getActiveGroup,
     saveTournament,
@@ -184,6 +427,9 @@
     exportToFile,
     exportPairingsToCSV,
     formatPairingShareText,
-    formatStandingsShareText
+    formatStandingsShareText,
+    compressTournamentState,
+    decompressTournamentState,
+    buildShareUrl
   };
 });
