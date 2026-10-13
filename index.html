@@ -281,8 +281,8 @@
         <div class="card-body">
           <form id="formAddPlayer" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end;">
             <div style="flex: 1; min-width: 240px;">
-              <label class="form-label" for="inputNewPlayerName">棋手姓名：</label>
-              <input type="text" class="form-control" id="inputNewPlayerName" placeholder="例如：新选手-孙小明" required>
+              <label class="form-label" for="inputNewPlayerName">棋手姓名 (支持空格/换行批量增加)：</label>
+              <input type="text" class="form-control" id="inputNewPlayerName" placeholder="输入选手姓名，空格或换行可批量增加，例如：孙小明 赵小刚" required>
             </div>
             <div>
               <button type="submit" class="btn btn-primary" id="btnSubmitAddPlayer">
@@ -291,7 +291,7 @@
             </div>
           </form>
           <div class="form-hint" style="margin-top: 0.5rem;">
-            💡 规则说明：中途加入的选手初始积分为 <strong>0 分</strong>，将自动进入下一轮瑞士制编排，与同分或相近积分区间的对手进行配对。
+            💡 规则说明：支持空格、换行、逗号批量录入。中途加入的选手初始积分为 <strong>0 分</strong>，将自动进入下一轮瑞士制编排，与同分或相近积分区间的对手进行配对。
           </div>
         </div>
       </div>
@@ -366,10 +366,12 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label class="form-label" for="modalPlayerNameInput">棋手姓名：</label>
-          <input type="text" class="form-control" id="modalPlayerNameInput" placeholder="输入选手姓名">
+          <label class="form-label" for="modalPlayerNameInput">棋手姓名 (支持批量录入)：</label>
+          <textarea class="form-control" id="modalPlayerNameInput" rows="4" placeholder="输入选手姓名，支持空格或换行批量增补，例如：
+张伟 李明 周强
+或一行一个，亦可直接粘贴微信/Excel名单"></textarea>
           <div class="form-hint">
-            中途入场的选手将以 <strong>0分</strong> 初始积分加入系统，在下一轮自动参与配对。
+            💡 支持批量增加：自动识别<strong>空格、换行、逗号</strong>等分隔符，自动过滤序号。中途入场选手将以 <strong>0分</strong> 初始积分加入系统，在下一轮自动参与配对。
           </div>
         </div>
       </div>

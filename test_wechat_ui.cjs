@@ -45,7 +45,8 @@ function createSandbox(url = 'http://localhost/index.html') {
       innerHTML: '',
       textContent: '',
       checked: false,
-      focus() {}
+      focus() {},
+      remove() {}
     };
   }
 
@@ -97,13 +98,15 @@ function createSandbox(url = 'http://localhost/index.html') {
     URLSearchParams,
     SwissEngine,
     TournamentStorage: Storage,
-    console
+    console,
+    setTimeout,
+    clearTimeout
   };
 
   vm.createContext(ctx);
   const appSource = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8').replace(
     "document.addEventListener('DOMContentLoaded', init);",
-    'globalThis.App = { state, els, cacheDom, renderPairings, handleOpenStandalonePrintWindow, switchGroup };'
+    'globalThis.App = { state, els, cacheDom, renderPairings, handleOpenStandalonePrintWindow, switchGroup, handleAddPlayer, parsePlayerNames };'
   );
   vm.runInContext(appSource, ctx);
   ctx.App.cacheDom();
@@ -190,6 +193,38 @@ function runTests() {
     assert.ok(c._lastWrittenPrintHtml.includes('独立签单预览与打印'), 'Popup HTML must contain standalone print header');
     assert.ok(c._lastWrittenPrintHtml.includes('window.print()'), 'Popup HTML must trigger window.print()');
     console.log('  ✅ Passed Modal Scrollability & Standalone Print checks');
+  }
+
+  // Test 5: Batch adding players with whitespace, newlines, and commas
+  console.log('Test 5: Batch adding players detects whitespace, newlines, numbers, and ratings');
+  {
+    const c = createSandbox();
+    c.App.state.isAdmin = true;
+    c.App.state.players = [];
+
+    // 1. Whitespace separated
+    const resSpaces = c.App.handleAddPlayer('胡安蓬 朱乐逸 张承楷');
+    assert.strictEqual(resSpaces, true, 'handleAddPlayer with spaces must succeed');
+    assert.strictEqual(c.App.state.players.length, 3, 'Must have added 3 players');
+    assert.deepStrictEqual(c.App.state.players.map(p => p.name), ['胡安蓬', '朱乐逸', '张承楷']);
+
+    // 2. Newline separated
+    const resNewlines = c.App.handleAddPlayer('邱子涵\n彭奕超\n王般若');
+    assert.strictEqual(resNewlines, true, 'handleAddPlayer with newlines must succeed');
+    assert.strictEqual(c.App.state.players.length, 6, 'Must have added 3 more players (total 6)');
+
+    // 3. Numbered & comma/semicolon mixed
+    const resMixed = c.App.handleAddPlayer('1. 韩翼阳 2. 颜旋, 3. 李奥；马睿含');
+    assert.strictEqual(resMixed, true, 'handleAddPlayer with mixed delimiters must succeed');
+    assert.strictEqual(c.App.state.players.length, 10, 'Must have added 4 more players (total 10)');
+
+    // 4. Duplicate handling (trying to add 胡安蓬 again, plus a new player 梅宇涵)
+    const resDup = c.App.handleAddPlayer('胡安蓬 梅宇涵');
+    assert.strictEqual(resDup, true, 'handleAddPlayer with partial duplicate must succeed for new player');
+    assert.strictEqual(c.App.state.players.length, 11, 'Must have added only 梅宇涵 (total 11)');
+    assert.strictEqual(c.App.state.players[10].name, '梅宇涵');
+
+    console.log('  ✅ Passed Batch Adding Players checks (Whitespace & Newline detection)');
   }
 
   console.log('\n🎉 ALL WeChat Minimalist UI & Feature Verification Tests passed successfully!\n');

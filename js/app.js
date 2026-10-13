@@ -396,19 +396,63 @@
    * 解析输入的选手名单文本 (宽容过滤：序号、空行、重复项、等级分)
    */
   function parsePlayerNames(text) {
-    if (!text) return [];
+    if (!text || typeof text !== 'string') return [];
     // 按换行、分号、逗号、顿号、制表符分隔
-    const rawItems = text.split(/[\n\r,，;；、\t]+/);
+    const rawLines = text.split(/[\n\r,，;；、\t]+/);
     const cleaned = [];
     const seen = new Set();
     let duplicates = 0;
 
-    rawItems.forEach(item => {
-      let name = item.trim();
-      if (!name) return;
-      // 去除每行开头的编号 (如 "1. 张伟"、"1、张伟"、"[1] 张伟"、"(1) 张伟"、"- 张伟")
+    rawLines.forEach(line => {
+      let trimmedLine = line.trim();
+      if (!trimmedLine) return;
+
+      // 如果当前行包含空格 (例如 "张伟 李明 周强" 或 "1. 张伟 2. 李明")
+      // 进一步按空格分词检测
+      const tokens = trimmedLine.split(/\s+/);
+      if (tokens.length > 1) {
+        // 检查是不是单纯一个名字带等级分，如 "张伟 1800"
+        if (tokens.length === 2 && /^\d{3,4}$/.test(tokens[1])) {
+          let name = tokens[0].replace(/^(\d+[\.\、\s\-]+|\[\d+\]|\(\d+\)|\d+\s+|\-\s+)/, '').trim();
+          if (name) {
+            if (!seen.has(name)) {
+              seen.add(name);
+              cleaned.push(name);
+            } else {
+              duplicates++;
+            }
+          }
+          return;
+        }
+
+        // 包含多个空格分隔的选手名单
+        tokens.forEach(tok => {
+          let piece = tok.trim();
+          if (!piece) return;
+          // 跳过独立序号如 "1.", "2、", "1", "(1)", "[1]"
+          if (/^(\d+[\.\、\)\-\]]*|\[\d+\]|\(\d+\))$/.test(piece)) return;
+          // 去除开头的编号
+          piece = piece.replace(/^(\d+[\.\、\s\-]+|\[\d+\]|\(\d+\)|\d+|\-\s*)/, '').trim();
+          // 跳过纯等级分数字
+          if (/^\d{3,4}$/.test(piece)) return;
+          // 去除括号等级分
+          piece = piece.replace(/\s*[\(\（]\d+[\)\）]$/, '').trim();
+
+          if (piece) {
+            if (!seen.has(piece)) {
+              seen.add(piece);
+              cleaned.push(piece);
+            } else {
+              duplicates++;
+            }
+          }
+        });
+        return;
+      }
+
+      // 单个名字
+      let name = trimmedLine;
       name = name.replace(/^(\d+[\.\、\s\-]+|\[\d+\]|\(\d+\)|\d+\s+|\-\s+)/, '').trim();
-      // 去除结尾的等级分或括号编号 (如 "张伟 1800" 或 "张伟 (1800)")
       name = name.replace(/\s+\d{3,4}$/, '').replace(/\s*[\(\（]\d+[\)\）]$/, '').trim();
       if (name) {
         if (!seen.has(name)) {
@@ -846,34 +890,49 @@
   }
 
   /**
-   * 中途增加选手 (支持0分入场)
+   * 中途增加选手 (支持0分入场，自动侦测空格、换行、逗号等批量增加)
    */
-  function handleAddPlayer(name) {
+  function handleAddPlayer(rawInput) {
     if (!requireAdmin('中途增加选手')) return false;
 
-    const cleanName = name ? name.trim() : '';
-    if (!cleanName) {
+    const names = parsePlayerNames(rawInput);
+    if (!names || names.length === 0) {
       showToast('请输入有效的选手姓名！', 'warning');
       return false;
     }
 
-    // 检查重名
-    const exists = state.players.some(p => p.name === cleanName);
-    if (exists) {
-      showToast(`已有名为 "${cleanName}" 的选手，请添加后缀区分！`, 'warning');
+    const added = [];
+    const skipped = [];
+
+    let maxId = state.players.reduce((max, p) => Math.max(max, p.id || 0), 0);
+
+    names.forEach(cleanName => {
+      // 检查当前比赛是否已有名为 cleanName 的选手
+      const exists = state.players.some(p => p.name === cleanName);
+      if (exists) {
+        skipped.push(cleanName);
+        return;
+      }
+
+      maxId++;
+      const newPlayer = {
+        id: maxId,
+        name: cleanName,
+        initialSeed: maxId,
+        status: 'active'
+      };
+
+      state.players.push(newPlayer);
+      added.push(cleanName);
+    });
+
+    if (added.length === 0) {
+      if (skipped.length > 0) {
+        showToast(`选手 ${skipped.map(n => `【${n}】`).join('、')} 已在参赛列表中，请勿重复添加！`, 'warning');
+      }
       return false;
     }
 
-    // 生成新 ID
-    const maxId = state.players.reduce((max, p) => Math.max(max, p.id || 0), 0);
-    const newPlayer = {
-      id: maxId + 1,
-      name: cleanName,
-      initialSeed: maxId + 1,
-      status: 'active'
-    };
-
-    state.players.push(newPlayer);
     saveState();
     updateHeaderStats();
 
@@ -883,22 +942,29 @@
       renderStandings();
     }
 
-    showToast(`🎉 选手【${cleanName}】已成功入场 (初始0分)！将在下一轮自动配对。`, 'success');
+    if (added.length === 1) {
+      showToast(`🎉 选手【${added[0]}】已成功入场 (初始0分)！将在下一轮自动配对。`, 'success');
+    } else {
+      const skipNote = skipped.length > 0 ? ` (已跳过 ${skipped.length} 名重复)` : '';
+      showToast(`🎉 成功批量增补 ${added.length} 名选手入场 (均初始0分)${skipNote}！将在下一轮自动配对。`, 'success');
+    }
+
     return true;
   }
 
   function handleModalAddPlayer() {
-    const name = els.modalPlayerNameInput.value;
-    if (handleAddPlayer(name)) {
-      els.modalPlayerNameInput.value = '';
+    const raw = els.modalPlayerNameInput ? els.modalPlayerNameInput.value : '';
+    if (handleAddPlayer(raw)) {
+      if (els.modalPlayerNameInput) els.modalPlayerNameInput.value = '';
       closeModal(els.modalAddPlayer);
     }
   }
 
-  function handleFormAddPlayer() {
-    const name = els.inputNewPlayerName.value;
-    if (handleAddPlayer(name)) {
-      els.inputNewPlayerName.value = '';
+  function handleFormAddPlayer(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const raw = els.inputNewPlayerName ? els.inputNewPlayerName.value : '';
+    if (handleAddPlayer(raw)) {
+      if (els.inputNewPlayerName) els.inputNewPlayerName.value = '';
     }
   }
 
