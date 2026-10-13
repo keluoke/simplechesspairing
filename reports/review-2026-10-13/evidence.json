@@ -1,0 +1,166 @@
+{
+  "baseline": "e54fa7c",
+  "environment": "v24.6.0",
+  "probeType": "Node modules + VM DOM stubs; browser evidence is separate",
+  "findings": [
+    {
+      "id": "R01-colors",
+      "evidence": {
+        "seed": 10,
+        "round": 5,
+        "bad": [
+          [
+            6,
+            5
+          ]
+        ],
+        "p6Colors": {
+          "history": [
+            "W",
+            "W",
+            "B",
+            "W",
+            "W"
+          ],
+          "whites": 4,
+          "blacks": 1,
+          "diff": 3,
+          "consecutiveColor": "W",
+          "consecutiveCount": 2
+        },
+        "warning": null,
+        "legalAlternative": [
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            8
+          ],
+          [
+            4,
+            6
+          ],
+          [
+            7,
+            5
+          ]
+        ]
+      }
+    },
+    {
+      "id": "R01-three-colors",
+      "evidence": {
+        "seed": 11,
+        "round": 5,
+        "p6Colors": {
+          "history": [
+            "W",
+            "W",
+            "B",
+            "B",
+            "B"
+          ],
+          "whites": 2,
+          "blacks": 3,
+          "diff": -1,
+          "consecutiveColor": "B",
+          "consecutiveCount": 3
+        },
+        "warning": null,
+        "legalAlternative": [
+          [
+            2,
+            1
+          ],
+          [
+            6,
+            3
+          ],
+          [
+            4,
+            7
+          ],
+          [
+            8,
+            5
+          ]
+        ]
+      }
+    },
+    {
+      "id": "R01-rematch",
+      "evidence": {
+        "repeat": true,
+        "warning": "提示：由于参赛人数较少且多位选手已相互交手，本轮存在极少数重复对决以保证比赛顺利进行。"
+      }
+    },
+    {
+      "id": "R02-snapshot-loss",
+      "evidence": {
+        "before": [
+          3,
+          2
+        ],
+        "after": [
+          0,
+          0
+        ],
+        "standingsScoresPreserved": true
+      }
+    },
+    {
+      "id": "R03-routing",
+      "evidence": {
+        "requested": "round=1&tab=history",
+        "actual": "?group=men&round=4&tab=pairing"
+      }
+    },
+    {
+      "id": "R04-takeover",
+      "evidence": {
+        "persistedSnapshotFlag": true,
+        "hashRetained": true,
+        "adminAfterTakeover": false
+      }
+    },
+    {
+      "id": "R04-group-switch",
+      "evidence": {
+        "group": "women",
+        "snapshotFlag": true
+      }
+    },
+    {
+      "id": "R05-import",
+      "evidence": {
+        "importedAdmin": true,
+        "invalidRoundsSaved": true,
+        "alert": "文件导入失败: Cannot read properties of undefined (reading 'length')"
+      }
+    },
+    {
+      "id": "R06-delete-group",
+      "evidence": {
+        "removedFromList": true,
+        "deletedDataResaved": true
+      }
+    },
+    {
+      "id": "R06-roster-overwrite",
+      "evidence": {
+        "beforeRounds": 4,
+        "afterRounds": 1,
+        "noOverwriteConfirmation": true
+      }
+    },
+    {
+      "id": "R07-html",
+      "evidence": {
+        "leaveModalIncludesRawNameMarkup": true,
+        "browserScriptExecutionTested": false
+      }
+    }
+  ]
+}

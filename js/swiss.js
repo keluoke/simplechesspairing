@@ -226,6 +226,13 @@
           bRes = '和';
           if (white) white.draws += 1;
           if (black) black.draws += 1;
+        } else if (match.result === '0-0') {
+          wPts = 0;
+          bPts = 0;
+          wRes = '双弃权';
+          bRes = '双弃权';
+          if (white) white.losses += 1;
+          if (black) black.losses += 1;
         }
 
         if (white) {
@@ -312,6 +319,23 @@
   }
 
   /**
+   * 判断某选手在指定新颜色下是否满足严格颜色规则约束：
+   * 1. 绝不允许连续 3 盘执相同颜色 (consecutiveCount < 2)
+   * 2. 执白或执黑盘数净差绝对值不能超过 2 (|diff| <= 2)
+   */
+  function isColorLegal(stats, newColor) {
+    if (!stats) return true;
+    if (newColor === 'W') {
+      if (stats.consecutiveColor === 'W' && stats.consecutiveCount >= 2) return false;
+      if (Math.abs(stats.diff + 1) > 2) return false;
+    } else if (newColor === 'B') {
+      if (stats.consecutiveColor === 'B' && stats.consecutiveCount >= 2) return false;
+      if (Math.abs(stats.diff - 1) > 2) return false;
+    }
+    return true;
+  }
+
+  /**
    * 评估两个选手分配特定颜色时的适宜度成本 (Cost, 越低越好)
    * 考虑：
    * - 是否违反“不能连续3次同色”
@@ -350,9 +374,27 @@
 
   /**
    * 决定两位选手谁执白谁执黑
+   * @param {Object} pA
+   * @param {Object} pB
+   * @param {boolean} allowColorRelaxation
    * @returns {Object} { white: player, black: player }
    */
-  function decideColors(pA, pB) {
+  function decideColors(pA, pB, allowColorRelaxation = false) {
+    const wStatsA = pA.colorStats;
+    const bStatsA = pB.colorStats;
+
+    const aWhiteLegal = isColorLegal(wStatsA, 'W') && isColorLegal(bStatsA, 'B');
+    const bWhiteLegal = isColorLegal(bStatsA, 'W') && isColorLegal(wStatsA, 'B');
+
+    if (!allowColorRelaxation) {
+      if (aWhiteLegal && !bWhiteLegal) {
+        return { white: pA, black: pB };
+      }
+      if (!aWhiteLegal && bWhiteLegal) {
+        return { white: pB, black: pA };
+      }
+    }
+
     const costAWhite = evaluateColorAssignmentCost(pA, pB);
     const costBWhite = evaluateColorAssignmentCost(pB, pA);
 
@@ -364,8 +406,238 @@
   }
 
   /**
+   * 独立瑞士制编排校验器 (Pairing Validator)
+   * 严格核验：
+   * 1. 活跃选手覆盖：每位活跃选手有且仅有一次出场 (或一次轮空)
+   * 2. 避免自对局 (whiteId !== blackId)
+   * 3. 避免非法重复交手
+   * 4. 颜色合法性校验 (严禁连续3次同色，严禁黑白盘数净差绝对值 > 2)
+   * 5. 轮空资格校验 (不可重复轮空)
+   */
+  function validatePairing(pairings, players, rounds) {
+    const errors = [];
+    const warnings = [];
+
+    if (!Array.isArray(pairings)) {
+      return { valid: false, errors: ['对阵列表必须为数组'], warnings };
+    }
+
+    const activePlayers = players.filter(p => p.status !== 'leave' && p.active !== false);
+    const activeIds = new Set(activePlayers.map(p => p.id));
+    const pairedInRound = new Set();
+    let hasBye = false;
+
+    for (let idx = 0; idx < pairings.length; idx++) {
+      const m = pairings[idx];
+      const b = m.board || (idx + 1);
+
+      if (m.isBye) {
+        if (hasBye) {
+          errors.push(`第 ${b} 台出现重复轮空台次`);
+        }
+        hasBye = true;
+        const pid = m.whiteId || m.playerId;
+        if (!activeIds.has(pid)) {
+          errors.push(`第 ${b} 台轮空选手 (ID: ${pid}) 不是活跃参赛选手`);
+        }
+        if (pairedInRound.has(pid)) {
+          errors.push(`第 ${b} 台轮空选手 (ID: ${pid}) 在本轮被重复安排`);
+        }
+        pairedInRound.add(pid);
+
+        if (rounds && hasHadBye(pid, rounds)) {
+          warnings.push(`选手 (ID: ${pid}) 此前已获得过轮空，本轮再次轮空`);
+        }
+      } else {
+        const wId = m.whiteId;
+        const bId = m.blackId;
+
+        if (!activeIds.has(wId)) {
+          errors.push(`第 ${b} 台白方选手 (ID: ${wId}) 不是活跃参赛选手`);
+        }
+        if (!activeIds.has(bId)) {
+          errors.push(`第 ${b} 台黑方选手 (ID: ${bId}) 不是活跃参赛选手`);
+        }
+        if (wId === bId) {
+          errors.push(`第 ${b} 台出现自己对战自己的非法对阵 (ID: ${wId})`);
+        }
+        if (pairedInRound.has(wId)) {
+          errors.push(`第 ${b} 台白方选手 (ID: ${wId}) 在本轮被重复编排`);
+        }
+        if (pairedInRound.has(bId)) {
+          errors.push(`第 ${b} 台黑方选手 (ID: ${bId}) 在本轮被重复编排`);
+        }
+        pairedInRound.add(wId);
+        pairedInRound.add(bId);
+
+        if (rounds && haveMet(wId, bId, rounds)) {
+          warnings.push(`第 ${b} 台选手 ID ${wId} 与 ID ${bId} 此前已交手过 (重复对决)`);
+        }
+
+        if (rounds) {
+          const wStats = getPlayerColorStats(wId, rounds);
+          const bStats = getPlayerColorStats(bId, rounds);
+          if (wStats.consecutiveColor === 'W' && wStats.consecutiveCount >= 2) {
+            warnings.push(`第 ${b} 台白方选手 (ID: ${wId}) 连续第 ${wStats.consecutiveCount + 1} 盘执白 (超2盘同色)`);
+          }
+          if (bStats.consecutiveColor === 'B' && bStats.consecutiveCount >= 2) {
+            warnings.push(`第 ${b} 台黑方选手 (ID: ${bId}) 连续第 ${bStats.consecutiveCount + 1} 盘执黑 (超2盘同色)`);
+          }
+          if (Math.abs(wStats.diff + 1) > 2) {
+            warnings.push(`第 ${b} 台白方选手 (ID: ${wId}) 执白净差达到 ${wStats.diff + 1} (超出绝对平衡范围)`);
+          }
+          if (Math.abs(bStats.diff - 1) > 2) {
+            warnings.push(`第 ${b} 台黑方选手 (ID: ${bId}) 执黑净差达到 ${Math.abs(bStats.diff - 1)} (超出绝对平衡范围)`);
+          }
+        }
+      }
+    }
+
+    // 检查是否有活跃选手漏排
+    for (const pid of activeIds) {
+      if (!pairedInRound.has(pid)) {
+        errors.push(`活跃选手 (ID: ${pid}) 未在本轮编排中出现`);
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings
+    };
+  }
+
+  /**
+   * 严格模式回溯匹配：
+   * 1. 绝对禁止重复交手
+   * 2. 绝对保证颜色合法性 (严禁连续3次同色，严禁|diff| > 2)
+   */
+  function solvePairingStrict(players, rounds) {
+    if (players.length === 0) return [];
+    if (players.length % 2 !== 0) return null;
+
+    const p1 = players[0];
+    const rest = players.slice(1);
+    const p1Stats = p1.colorStats;
+
+    const candidates = [];
+    for (const p2 of rest) {
+      if (haveMet(p1.id, p2.id, rounds)) continue;
+      const p2Stats = p2.colorStats;
+      const canP1W = isColorLegal(p1Stats, 'W') && isColorLegal(p2Stats, 'B');
+      const canP2W = isColorLegal(p2Stats, 'W') && isColorLegal(p1Stats, 'B');
+      if (canP1W || canP2W) {
+        candidates.push({ p2, canP1W, canP2W });
+      }
+    }
+
+    // 启发式排序：同分群积分差优先，黑白棋偏好成本次之
+    candidates.sort((a, b) => {
+      const diffA = Math.abs(p1.score - a.p2.score);
+      const diffB = Math.abs(p1.score - b.p2.score);
+      if (diffA !== diffB) return diffA - diffB;
+      const costA = Math.min(
+        evaluateColorAssignmentCost(p1, a.p2),
+        evaluateColorAssignmentCost(a.p2, p1)
+      );
+      const costB = Math.min(
+        evaluateColorAssignmentCost(p1, b.p2),
+        evaluateColorAssignmentCost(b.p2, p1)
+      );
+      return costA - costB;
+    });
+
+    for (const { p2, canP1W, canP2W } of candidates) {
+      const remaining = rest.filter(p => p.id !== p2.id);
+      const subSolution = solvePairingStrict(remaining, rounds);
+      if (subSolution !== null) {
+        let white, black;
+        if (canP1W && !canP2W) {
+          white = p1; black = p2;
+        } else if (!canP1W && canP2W) {
+          white = p2; black = p1;
+        } else {
+          const cost1 = evaluateColorAssignmentCost(p1, p2);
+          const cost2 = evaluateColorAssignmentCost(p2, p1);
+          if (cost1 <= cost2) {
+            white = p1; black = p2;
+          } else {
+            white = p2; black = p1;
+          }
+        }
+        return [{ white, black }, ...subSolution];
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 放宽颜色约束匹配 (保证无重复对阵，允许放宽颜色限制)
+   */
+  function solvePairingRelaxedColors(players, rounds) {
+    if (players.length === 0) return [];
+    if (players.length % 2 !== 0) return null;
+
+    const p1 = players[0];
+    const rest = players.slice(1);
+
+    const candidates = rest.filter(p2 => !haveMet(p1.id, p2.id, rounds));
+    candidates.sort((cA, cB) => {
+      const diffA = Math.abs(p1.score - cA.score);
+      const diffB = Math.abs(p1.score - cB.score);
+      if (diffA !== diffB) return diffA - diffB;
+      return Math.min(evaluateColorAssignmentCost(p1, cA), evaluateColorAssignmentCost(cA, p1)) -
+             Math.min(evaluateColorAssignmentCost(p1, cB), evaluateColorAssignmentCost(cB, p1));
+    });
+
+    for (const c of candidates) {
+      const remaining = rest.filter(p => p.id !== c.id);
+      const subSolution = solvePairingRelaxedColors(remaining, rounds);
+      if (subSolution !== null) {
+        const colors = decideColors(p1, c, true);
+        return [{ white: colors.white, black: colors.black }, ...subSolution];
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 放宽重复交手匹配 (极端小人数全循环打满时兜底)
+   */
+  function solvePairingRelaxedRematches(players, rounds) {
+    if (players.length === 0) return [];
+    if (players.length % 2 !== 0) return null;
+
+    const p1 = players[0];
+    const rest = players.slice(1);
+
+    const candidates = [...rest];
+    candidates.sort((cA, cB) => {
+      const metA = haveMet(p1.id, cA.id, rounds) ? 1 : 0;
+      const metB = haveMet(p1.id, cB.id, rounds) ? 1 : 0;
+      if (metA !== metB) return metA - metB;
+      const diffA = Math.abs(p1.score - cA.score);
+      const diffB = Math.abs(p1.score - cB.score);
+      return diffA - diffB;
+    });
+
+    for (const c of candidates) {
+      const remaining = rest.filter(p => p.id !== c.id);
+      const subSolution = solvePairingRelaxedRematches(remaining, rounds);
+      if (subSolution !== null) {
+        const colors = decideColors(p1, c, true);
+        return [{ white: colors.white, black: colors.black }, ...subSolution];
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * 生成下一轮瑞士制配对
-   * 核心算法：带剪枝的同分群优先回溯匹配算法 (Dutch-Swiss Heuristic Backtracking)
+   * 采用分层约束回溯求解引擎，具备严格规则保证与独立校验
    * 
    * @param {Array} players - 选手列表 (含 status: 'active' 或 'leave')
    * @param {Array} rounds - 历史轮次
@@ -400,22 +672,37 @@
 
     let byePlayer = null;
     let poolForPairing = [...candidatePool];
+    let precomputedMatches = null;
 
     // 3. 处理奇数选手轮空 (Bye)
-    // 规则：选出得分最低、且之前从未获得过轮空的选手作为轮空者
+    // 规则：选出得分最低且此前未获得过轮空的选手作为轮空者
+    // 并验证所选轮空选手能否使剩余选手找到完全合法的严格配对
     if (poolForPairing.length % 2 !== 0) {
-      // 优先从最低分开始找没拿过 Bye 的选手
-      const eligibleForBye = poolForPairing
+      const unbyedCandidates = poolForPairing
         .slice()
         .reverse()
         .filter(p => !hasHadBye(p.id, rounds));
 
+      const candidatesToTry = unbyedCandidates.length > 0
+        ? unbyedCandidates
+        : poolForPairing.slice().reverse();
+
       let selectedBye = null;
-      if (eligibleForBye.length > 0) {
-        selectedBye = eligibleForBye[0];
-      } else {
-        // 如果所有人其实都拿过轮空（极少见但需兜底），选最低分者
-        selectedBye = poolForPairing[poolForPairing.length - 1];
+
+      if (roundNumber > 1 && rounds.length > 0) {
+        for (const cand of candidatesToTry) {
+          const testPool = poolForPairing.filter(p => p.id !== cand.id);
+          const testSol = solvePairingStrict(testPool, rounds);
+          if (testSol !== null) {
+            selectedBye = cand;
+            precomputedMatches = testSol;
+            break;
+          }
+        }
+      }
+
+      if (!selectedBye) {
+        selectedBye = candidatesToTry[0];
       }
 
       byePlayer = selectedBye;
@@ -432,7 +719,6 @@
       for (let i = 0; i < half; i++) {
         const p1 = topHalf[i];
         const p2 = bottomHalf[i];
-        // 奇偶台次黑白交替
         const isOddBoard = (i % 2 === 0);
         pairings.push({
           board: i + 1,
@@ -453,7 +739,7 @@
           playerId: byePlayer.id,
           playerName: byePlayer.name,
           playerScore: byePlayer.score,
-          result: '1-0', // 轮空默认自动记1-0
+          result: '1-0',
           statusText: '轮空胜 (+1.0分)'
         });
       }
@@ -466,33 +752,22 @@
       };
     }
 
-    // 5. 第2轮及以后的瑞士制匹配 (回溯算法)
-    // 尝试寻找无重复交手的最佳匹配
-    let matchResult = solvePairing(poolForPairing, rounds, false);
+    // 5. 第2轮及以后的瑞士制匹配 (分层约束求解)
+    let matchResult = precomputedMatches;
     let warning = null;
 
-    // 如果因为已交手过多无法在当前轮空选择下完全配对，尝试更换轮空选手
-    if (!matchResult && byePlayer) {
-      const otherByeCandidates = candidatePool
-        .slice()
-        .reverse()
-        .filter(p => p.id !== byePlayer.id && !hasHadBye(p.id, rounds));
-
-      for (const altBye of otherByeCandidates) {
-        const altPool = candidatePool.filter(p => p.id !== altBye.id);
-        const altResult = solvePairing(altPool, rounds, false);
-        if (altResult) {
-          byePlayer = altBye;
-          matchResult = altResult;
-          break;
-        }
-      }
+    if (!matchResult) {
+      matchResult = solvePairingStrict(poolForPairing, rounds);
     }
 
-    // 极端兜底情况：如果选手极少（如全循环已基本打完），允许必要重复交手
+    if (!matchResult) {
+      warning = '提示：受历史黑白棋限制，本轮存在极少数棋手调整执黑白要求，以保证完全零重复对阵。';
+      matchResult = solvePairingRelaxedColors(poolForPairing, rounds);
+    }
+
     if (!matchResult) {
       warning = '提示：由于参赛人数较少且多位选手已相互交手，本轮存在极少数重复对决以保证比赛顺利进行。';
-      matchResult = solvePairing(poolForPairing, rounds, true);
+      matchResult = solvePairingRelaxedRematches(poolForPairing, rounds);
     }
 
     if (!matchResult) {
@@ -501,15 +776,14 @@
 
     // 整理台次与黑白棋分配
     const pairings = matchResult.map((pair, idx) => {
-      const colors = decideColors(pair[0], pair[1]);
       return {
         board: idx + 1,
-        whiteId: colors.white.id,
-        whiteName: colors.white.name,
-        whiteScore: colors.white.score,
-        blackId: colors.black.id,
-        blackName: colors.black.name,
-        blackScore: colors.black.score,
+        whiteId: pair.white.id,
+        whiteName: pair.white.name,
+        whiteScore: pair.white.score,
+        blackId: pair.black.id,
+        blackName: pair.black.name,
+        blackScore: pair.black.score,
         result: null
       };
     });
@@ -526,6 +800,12 @@
       });
     }
 
+    // 独立校验器验证
+    const validation = validatePairing(pairings, activePlayers, rounds);
+    if (!validation.valid) {
+      throw new Error('编排校验未通过: ' + validation.errors.join('; '));
+    }
+
     return {
       roundNumber,
       pairings,
@@ -534,65 +814,10 @@
     };
   }
 
-  /**
-   * 递归回溯求解配对
-   * @param {Array} players - 待配对选手列表 (偶数个)
-   * @param {Array} rounds - 历史轮次
-   * @param {boolean} allowRematch - 是否允许重复交手兜底
-   */
-  function solvePairing(players, rounds, allowRematch) {
-    if (players.length === 0) return [];
-    if (players.length % 2 !== 0) return null;
-
-    // 取当前最高分的第一名选手
-    const p1 = players[0];
-    const rest = players.slice(1);
-
-    // 候选对手列表
-    let candidates = rest.filter(p2 => allowRematch || !haveMet(p1.id, p2.id, rounds));
-
-    if (candidates.length === 0) {
-      if (allowRematch) {
-        candidates = rest; // 允许重复对局
-      } else {
-        return null; // 回溯
-      }
-    }
-
-    // 对候选对手按启发式打分排序：
-    // 1. 积分差越小越好 (同分群优先)
-    // 2. 颜色冲突惩罚越小越好
-    candidates.sort((cA, cB) => {
-      const scoreDiffA = Math.abs(p1.score - cA.score);
-      const scoreDiffB = Math.abs(p1.score - cB.score);
-      if (scoreDiffA !== scoreDiffB) return scoreDiffA - scoreDiffB;
-
-      // 颜色冲突成本
-      const costA = Math.min(
-        evaluateColorAssignmentCost(p1, cA),
-        evaluateColorAssignmentCost(cA, p1)
-      );
-      const costB = Math.min(
-        evaluateColorAssignmentCost(p1, cB),
-        evaluateColorAssignmentCost(cB, p1)
-      );
-      return costA - costB;
-    });
-
-    for (const c of candidates) {
-      const remaining = rest.filter(p => p.id !== c.id);
-      const subSolution = solvePairing(remaining, rounds, allowRematch);
-      if (subSolution !== null) {
-        return [[p1, c], ...subSolution];
-      }
-    }
-
-    return null;
-  }
-
   return {
     calculateStandings,
     generateSwissPairing,
+    validatePairing,
     getPlayerColorStats,
     haveMet,
     hasHadBye

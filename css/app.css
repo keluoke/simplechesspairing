@@ -1050,18 +1050,44 @@ body {
     visibility: hidden;
   }
 
+  body.printing-sheet-mode .modal-backdrop.printing-active,
+  body.printing-sheet-mode .modal-backdrop.printing-active .modal-dialog,
+  body.printing-sheet-mode .modal-backdrop.printing-active .modal-body,
   body.printing-sheet-mode #printableSheetArea,
   body.printing-sheet-mode #printableSheetArea * {
     visibility: visible;
   }
 
+  body.printing-sheet-mode .modal-backdrop.printing-active {
+    display: block !important;
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  body.printing-sheet-mode .modal-backdrop.printing-active .modal-dialog {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  body.printing-sheet-mode .modal-header,
+  body.printing-sheet-mode .modal-footer,
+  body.printing-sheet-mode .modal-body > div:first-child {
+    display: none !important;
+  }
+
   body.printing-sheet-mode #printableSheetArea {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    margin: 0;
-    padding: 8mm 10mm;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 4mm 6mm !important;
+    border: none !important;
     background: #ffffff !important;
     color: #000000 !important;
     display: block !important;

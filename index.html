@@ -186,6 +186,15 @@
             <button class="btn btn-warning btn-sm" id="btnBannerEditLeave">调整请假状态</button>
           </div>
 
+          <!-- 完赛状态横幅 -->
+          <div class="alert-banner alert-success" id="bannerTournamentFinished" style="display: none; align-items: center; justify-content: space-between;">
+            <div>
+              <span>🏆 <strong>赛事已完赛！</strong></span>
+              <span>全部预定轮次已完成，最终名次与积分榜已锁定公布。</span>
+            </div>
+            <button class="btn btn-outline btn-sm" id="btnReopenTournament">🔓 重新开放比赛进行中</button>
+          </div>
+
           <!-- 对阵提示或警告 (如兜底重遇) -->
           <div class="alert-banner alert-info" id="bannerPairingNotice" style="display: none;">
             <span id="bannerPairingNoticeText">提示信息</span>
@@ -202,9 +211,12 @@
               <span>📊 录入进度：</span>
               <span class="progress-pill" id="resultProgressText">0 / 4 台已完成</span>
             </div>
-            <div style="display: flex; gap: 0.75rem;">
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
               <button class="btn btn-outline" id="btnRegenerateCurrentRound" title="如果刚调整了请假名单或增加了选手，可重新生成本轮配对">
                 <span>🔄</span> 重新编排本轮
+              </button>
+              <button class="btn btn-outline btn-warning" id="btnFinishTournament" title="结束赛事并公布最终名次">
+                <span>🏆</span> 完赛公布名次
               </button>
               <button class="btn btn-success btn-lg" id="btnFinishRoundAndNext">
                 <span>🏁</span> 结束本轮，生成下一轮编排

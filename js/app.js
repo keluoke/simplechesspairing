@@ -38,12 +38,8 @@
 
     renderGroupSwitcher();
 
-    // 优先检查 URL 快照与路由参数
-    const handledSnapshot = await handleUrlSnapshotAndParams();
-    if (!handledSnapshot) {
-      const activeGroup = TournamentStorage.getActiveGroup() || 'men';
-      switchGroup(activeGroup, false);
-    }
+    // 优先检查 URL 快照与路由参数 (单次确定性初始化，防止深链接被覆盖)
+    await handleUrlSnapshotAndParams();
   }
 
   /**
@@ -101,6 +97,9 @@
     els.resultProgressText = document.getElementById('resultProgressText');
     els.btnRegenerateCurrentRound = document.getElementById('btnRegenerateCurrentRound');
     els.btnFinishRoundAndNext = document.getElementById('btnFinishRoundAndNext');
+    els.bannerTournamentFinished = document.getElementById('bannerTournamentFinished');
+    els.btnReopenTournament = document.getElementById('btnReopenTournament');
+    els.btnFinishTournament = document.getElementById('btnFinishTournament');
 
     // Tab Standings
     els.tabStandings = document.getElementById('tabStandings');
@@ -257,6 +256,8 @@
     // 对阵与推进操作
     els.btnFinishRoundAndNext.addEventListener('click', handleFinishRoundAndNext);
     els.btnRegenerateCurrentRound.addEventListener('click', handleRegenerateCurrentRound);
+    if (els.btnFinishTournament) els.btnFinishTournament.addEventListener('click', handleFinishTournament);
+    if (els.btnReopenTournament) els.btnReopenTournament.addEventListener('click', handleReopenTournament);
 
     // 快捷增补选手
     els.btnQuickAddPlayer.addEventListener('click', () => openModal(els.modalAddPlayer));
@@ -434,6 +435,14 @@
       return;
     }
 
+    // 保护现有赛事：若当前组已有历史比赛或已在进行中，必须经用户明确确认才允许重新开赛
+    const existing = TournamentStorage.loadTournament(state.groupId);
+    if ((state.rounds && state.rounds.length > 0) || (existing && existing.rounds && existing.rounds.length > 0)) {
+      if (!confirm(`【${TournamentStorage.getGroupName(state.groupId)}】已有进行中的赛事及对阵记录。\n\n重新开始将覆盖并清空本组的所有历史对阵与比分，确定要继续吗？`)) {
+        return;
+      }
+    }
+
     const title = els.setupTournamentTitle.value.trim() || `${TournamentStorage.getGroupName(state.groupId)} 积分赛`;
     state.title = title;
 
@@ -471,6 +480,20 @@
     if (shouldSaveCurrent && !state.isSnapshot) {
       saveState();
     }
+
+    // 退出快照查阅模式并清除相关 URL Hash
+    if (state.isSnapshot) {
+      state.isSnapshot = false;
+      if (els.bannerSnapshotView) els.bannerSnapshotView.style.display = 'none';
+      try {
+        if (window.location.hash && (window.location.hash.includes('d=') || window.location.hash.includes('data='))) {
+          const cleanUrl = new URL(window.location.href);
+          cleanUrl.hash = '';
+          window.history.replaceState(null, '', cleanUrl.toString());
+        }
+      } catch (e) {}
+    }
+
     state.groupId = groupId;
     TournamentStorage.saveActiveGroup(groupId);
 
@@ -481,6 +504,7 @@
     if (saved && saved.players && saved.players.length > 0) {
       Object.assign(state, saved);
       state.groupId = groupId;
+      state.isSnapshot = false;
       state.historyViewingRound = state.rounds.length || 1;
       renderApp();
       showToast(`已切换至【${TournamentStorage.getGroupName(groupId)}】比赛`, 'info');
@@ -492,6 +516,7 @@
       state.rounds = [];
       state.currentRoundIndex = 0;
       state.historyViewingRound = 1;
+      state.isSnapshot = false;
       if (els.setupTournamentTitle) {
         els.setupTournamentTitle.value = state.title;
       }
@@ -547,11 +572,18 @@
         try {
           const rawHashStr = decodeURIComponent(match[2]);
           const decompressed = await TournamentStorage.decompressTournamentState(rawHashStr);
-          if (decompressed && decompressed.players && decompressed.players.length > 0) {
+          const validation = TournamentStorage.validateTournamentData(decompressed);
+          if (validation.valid && validation.sanitizedData && validation.sanitizedData.players && validation.sanitizedData.players.length > 0) {
+            const sanitized = validation.sanitizedData;
             state.isSnapshot = true;
             state.isAdmin = false; // 快照链接默认以只读访客模式打开
             updateAuthUI();
-            Object.assign(state, decompressed);
+            state.groupId = sanitized.groupId;
+            state.title = sanitized.title;
+            state.status = sanitized.status;
+            state.players = sanitized.players;
+            state.rounds = sanitized.rounds;
+            state.currentRoundIndex = sanitized.currentRoundIndex;
             state.historyViewingRound = state.rounds.length || 1;
 
             const urlParams = new URLSearchParams(window.location.search);
@@ -618,12 +650,17 @@
     if (paramRound) {
       const r = parseInt(paramRound, 10);
       if (!isNaN(r) && r >= 1) {
-        state.historyViewingRound = r;
+        state.historyViewingRound = Math.min(r, Math.max(1, state.rounds.length));
       }
     }
 
     if (paramTab) {
-      const targetTab = paramTab.startsWith('tab') ? paramTab : ('tab' + paramTab.charAt(0).toUpperCase() + paramTab.slice(1));
+      const tabKey = paramTab.toLowerCase();
+      let targetTab = 'tabPairing';
+      if (tabKey === 'standings' || tabKey === 'tabstandings') targetTab = 'tabStandings';
+      else if (tabKey === 'history' || tabKey === 'tabhistory') targetTab = 'tabHistory';
+      else if (tabKey === 'players' || tabKey === 'tabplayers') targetTab = 'tabPlayers';
+      else if (tabKey === 'pairing' || tabKey === 'tabpairing') targetTab = 'tabPairing';
       switchTab(targetTab);
     }
 
@@ -631,7 +668,7 @@
       openPrintSheetModal(state.historyViewingRound);
     }
 
-    return false;
+    return true;
   }
 
   /**
@@ -639,11 +676,48 @@
    */
   function handleTakeoverSnapshot() {
     if (confirm(`是否将当前查阅的【${state.title}】保存至您的浏览器本地？\n\n保存后您可以在当前设备继续录入后续比分并进行编排。`)) {
-      TournamentStorage.saveTournament(state, state.groupId);
+      // 1. 彻底退出快照状态 (在持久化前更新)
       state.isSnapshot = false;
+
+      // 2. 如果是自定义组别，确保将其注册到本地组别列表
+      const groups = TournamentStorage.getGroups();
+      if (!groups.some(g => g.id === state.groupId)) {
+        groups.push({
+          id: state.groupId,
+          name: state.title ? state.title.slice(0, 15) : '已接管赛事'
+        });
+        TournamentStorage.saveGroups(groups);
+      }
+
+      // 3. 持久化纯净领域数据 (绝不持久化 isSnapshot 标记)
+      const domainData = {
+        groupId: state.groupId,
+        title: state.title,
+        status: state.status,
+        players: state.players,
+        rounds: state.rounds,
+        currentRoundIndex: state.currentRoundIndex
+      };
+      const saved = TournamentStorage.saveTournament(domainData, state.groupId);
+
+      // 4. 清除 URL Hash 中的 #d= 或 #data=，防止刷新后重载旧快照
+      try {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.hash = '';
+        cleanUrl.searchParams.set('group', state.groupId);
+        window.history.replaceState(null, '', cleanUrl.toString());
+      } catch (e) {}
+
+      // 5. 更新 UI 界面
       if (els.bannerSnapshotView) els.bannerSnapshotView.style.display = 'none';
-      showToast('🎉 已成功转存至本地浏览器！您现在可以进行比赛管理。', 'success');
-      syncUrlState();
+      renderGroupSwitcher();
+      updateAuthUI();
+
+      if (saved) {
+        showToast('🎉 已成功接管并保存至本地浏览器！若需录入比分或进行编排，请点击右上角登录裁判员。', 'success');
+      } else {
+        showToast('⚠️ 本地存储容量已满，保存可能未生效！请导出 JSON 文件备份。', 'danger');
+      }
     }
   }
 
@@ -705,35 +779,33 @@
       showToast('系统预置的男子组与女子组不可删除！', 'warning');
       return;
     }
-    const gName = TournamentStorage.getGroupName(state.groupId);
+    const targetGroupId = state.groupId;
+    const gName = TournamentStorage.getGroupName(targetGroupId);
     if (confirm(`确定要彻底删除【${gName}】及其所有历史轮次数据吗？此操作无法撤销！`)) {
-      const remaining = TournamentStorage.deleteGroup(state.groupId);
+      const remaining = TournamentStorage.deleteGroup(targetGroupId);
       closeModal(els.modalDataManage);
       const nextGroupId = (remaining[0] && remaining[0].id) || 'men';
+      // 切组时传入 false，避免在切换前又将已删除的组数据重新保存回 localStorage
+      switchGroup(nextGroupId, false);
       renderGroupSwitcher();
-      switchGroup(nextGroupId);
       showToast(`已删除组别【${gName}】`, 'info');
     }
   }
 
   /**
-   * 载入名单预设
+   * 载入名单预设 (仅填充名单输入框，严禁修改当前组别 state.groupId，防止跨组覆盖)
    */
   function loadRosterPreset(type) {
     if (type === 'men') {
-      state.groupId = 'men';
-      state.title = '弈星国际象棋俱乐部周积分赛 (男子组)';
-      els.setupTournamentTitle.value = state.title;
-      els.setupPlayerInput.value = SampleTournamentData.menPlayerNames.join('\n');
-      renderGroupSwitcher();
-      showToast('已填入男子组名单 (共 20 人)！', 'info');
+      if (els.setupPlayerInput) {
+        els.setupPlayerInput.value = SampleTournamentData.menPlayerNames.join('\n');
+      }
+      showToast('已填入男子组参考名单 (共 20 人)！', 'info');
     } else if (type === 'women') {
-      state.groupId = 'women';
-      state.title = '弈星国际象棋俱乐部周积分赛 (女子组)';
-      els.setupTournamentTitle.value = state.title;
-      els.setupPlayerInput.value = SampleTournamentData.womenPlayerNames.join('\n');
-      renderGroupSwitcher();
-      showToast('已填入女子组名单 (共 7 人)！', 'info');
+      if (els.setupPlayerInput) {
+        els.setupPlayerInput.value = SampleTournamentData.womenPlayerNames.join('\n');
+      }
+      showToast('已填入女子组参考名单 (共 7 人)！', 'info');
     }
   }
 
@@ -827,7 +899,7 @@
       html += `
         <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-surface);">
           <div style="display: flex; align-items: center; gap: 0.6rem;">
-            <span style="font-weight: 600;">${p.name}</span>
+            <span style="font-weight: 600;">${escapeHtml(p.name)}</span>
             <span style="font-size: 0.75rem; color: var(--text-muted);">(当前分: ${getPlayerScore(p.id)}分)</span>
           </div>
           <div>
@@ -1073,12 +1145,31 @@
       btnBannerLogin.addEventListener('click', openLoginModal);
     }
 
-    // 更新录入进度条
+    // 更新完赛横幅与推进按钮状态
     const totalBoards = currentRound.pairings.length;
     els.resultProgressText.textContent = `${completedBoards} / ${totalBoards} 台已完成`;
-    if (completedBoards === totalBoards && totalBoards > 0) {
-      els.btnFinishRoundAndNext.classList.remove('btn-outline');
-      els.btnFinishRoundAndNext.classList.add('btn-success');
+    const isAllDone = (completedBoards === totalBoards && totalBoards > 0);
+
+    if (state.status === 'finished') {
+      if (els.bannerTournamentFinished) els.bannerTournamentFinished.style.display = 'flex';
+      if (els.btnReopenTournament) els.btnReopenTournament.style.display = state.isAdmin ? 'inline-block' : 'none';
+      if (els.btnFinishRoundAndNext) els.btnFinishRoundAndNext.style.display = 'none';
+      if (els.btnRegenerateCurrentRound) els.btnRegenerateCurrentRound.style.display = 'none';
+      if (els.btnFinishTournament) els.btnFinishTournament.style.display = 'none';
+    } else {
+      if (els.bannerTournamentFinished) els.bannerTournamentFinished.style.display = 'none';
+      if (els.btnFinishRoundAndNext) els.btnFinishRoundAndNext.style.display = 'inline-flex';
+      if (els.btnRegenerateCurrentRound) els.btnRegenerateCurrentRound.style.display = 'inline-flex';
+
+      if (isAllDone) {
+        els.btnFinishRoundAndNext.classList.remove('btn-outline');
+        els.btnFinishRoundAndNext.classList.add('btn-success');
+        if (els.btnFinishTournament) els.btnFinishTournament.style.display = 'inline-flex';
+      } else {
+        els.btnFinishRoundAndNext.classList.add('btn-outline');
+        els.btnFinishRoundAndNext.classList.remove('btn-success');
+        if (els.btnFinishTournament) els.btnFinishTournament.style.display = 'none';
+      }
     }
 
     // 绑定比分按钮点击事件
@@ -1163,10 +1254,14 @@
     // 检查是否有未录入比分的台次
     const uncompleted = currentRound.pairings.filter(m => !m.result);
     if (uncompleted.length > 0) {
-      const msg = `当前第 ${currentRound.roundNumber} 轮还有 ${uncompleted.length} 台尚未录入结果 (第 ${uncompleted.map(m => m.board).join('、')} 台)。\n\n是否仍然强制结束本轮并生成下一轮？\n(未出结果的台次双方将均计为0分)`;
+      const msg = `当前第 ${currentRound.roundNumber} 轮还有 ${uncompleted.length} 台尚未录入结果 (第 ${uncompleted.map(m => m.board).join('、')} 台)。\n\n是否仍然强制结束本轮并生成下一轮？\n(未出结果的台次双方将正式记为双方弃权 0-0)`;
       if (!confirm(msg)) {
         return;
       }
+      // 明确记录为双方弃权 0-0，拒绝 null 遗留
+      uncompleted.forEach(m => {
+        m.result = '0-0';
+      });
     }
 
     const nextRoundNum = state.rounds.length + 1;
@@ -1183,6 +1278,54 @@
       showToast(`🎉 成功完成第 ${currentRound.roundNumber} 轮！已生成第 ${nextRoundNum} 轮瑞士制编排。`, 'success');
     } catch (err) {
       showToast('生成下一轮失败: ' + err.message, 'danger');
+    }
+  }
+
+  /**
+   * 正常结束比赛 (完赛)
+   */
+  function handleFinishTournament() {
+    if (!requireAdmin('结束比赛公布最终名次')) return;
+
+    if (state.status === 'setup' || !state.rounds || state.rounds.length === 0) {
+      showToast('赛事尚未开始，无法完赛！', 'warning');
+      return;
+    }
+
+    const currentRound = state.rounds[state.currentRoundIndex];
+    if (currentRound) {
+      const uncompleted = currentRound.pairings.filter(m => !m.result);
+      if (uncompleted.length > 0) {
+        if (!confirm(`第 ${currentRound.roundNumber} 轮还有 ${uncompleted.length} 台未录入赛果。\n\n完赛后未录入的台次将按双方弃权 (0-0) 记录，确定现在结束比赛吗？`)) {
+          return;
+        }
+        uncompleted.forEach(m => {
+          m.result = '0-0';
+        });
+      }
+    }
+
+    if (confirm(`确定要正式结束【${state.title}】并公布最终名次吗？\n\n完赛后将锁定全部轮次比分，并自动生成最终名次榜单。`)) {
+      state.status = 'finished';
+      saveState();
+      renderApp();
+      switchTab('tabStandings');
+      showToast('🎉 恭喜！赛事已圆满完赛，最终名次已正式发布！', 'success');
+    }
+  }
+
+  /**
+   * 恢复比赛进行中 (撤销完赛状态)
+   */
+  function handleReopenTournament() {
+    if (!requireAdmin('恢复比赛进行中')) return;
+    if (state.status !== 'finished') return;
+
+    if (confirm('是否将当前赛事从【已完赛】恢复为【进行中】状态？\n恢复后裁判员可继续修改比分或生成后续轮次。')) {
+      state.status = 'in_progress';
+      saveState();
+      renderApp();
+      showToast('比赛状态已恢复为进行中！', 'info');
     }
   }
 
@@ -1230,7 +1373,7 @@
           chipClass += ' chip-leave';
           chipText += `休`;
         }
-        historyChipsHtml += `<span class="${chipClass}" title="第${m.round}轮 对手:${m.opponentName || '无'}">${chipText}</span>`;
+        historyChipsHtml += `<span class="${chipClass}" title="第${m.round}轮 对手:${escapeHtml(m.opponentName || '无')}">${chipText}</span>`;
       });
 
       const colorText = `${s.colorStats.whites}白 / ${s.colorStats.blacks}黑`;
@@ -1461,7 +1604,12 @@
         const resVal = btn.dataset.historySetResult;
         setMatchResult(rNum - 1, bNum, resVal);
         renderHistory();
-        showToast(`已更新第 ${rNum} 轮 第 ${bNum} 台比分为 ${resVal}`, 'success');
+        const hasSubsequent = (rNum < state.rounds.length);
+        if (hasSubsequent) {
+          showToast(`已更正第 ${rNum} 轮 第 ${bNum} 台赛果为 ${resVal}！\n⚠️ 提醒：后续轮次保留既有排阵，总分与破同分已联动更新。`, 'warning');
+        } else {
+          showToast(`已更新第 ${rNum} 轮 第 ${bNum} 台比分为 ${resVal}`, 'success');
+        }
       });
     });
   }
@@ -1497,6 +1645,13 @@
       els.badgeRoundStatus.className = 'badge badge-round';
       els.badgePlayerCount.textContent = `选手: ${state.players.length}人`;
       els.badgeLeaveCount.style.display = 'none';
+    } else if (state.status === 'finished') {
+      els.badgeRoundStatus.textContent = `🏆 已完赛 (共 ${state.rounds.length} 轮)`;
+      els.badgeRoundStatus.className = 'badge badge-round badge-finished';
+      els.printSubtitle.textContent = `最终成绩总榜单 (共 ${state.rounds.length} 轮)`;
+      const activeCount = state.players.filter(p => p.status !== 'leave').length;
+      els.badgePlayerCount.textContent = `参赛: ${activeCount}人`;
+      els.badgeLeaveCount.style.display = 'none';
     } else {
       const currentR = state.rounds[state.currentRoundIndex];
       const rNum = currentR ? currentR.roundNumber : state.rounds.length;
@@ -1518,10 +1673,11 @@
   }
 
   /**
-   * 保存当前状态到 LocalStorage
+   * 保存当前状态到 LocalStorage (带容量与失败检查)
    */
   function saveState() {
-    TournamentStorage.saveTournament({
+    if (state.isSnapshot) return true;
+    const saved = TournamentStorage.saveTournament({
       groupId: state.groupId,
       title: state.title,
       status: state.status,
@@ -1531,6 +1687,11 @@
       activeTab: state.activeTab,
       theme: state.theme
     }, state.groupId);
+    if (!saved) {
+      showToast('⚠️ 本地存储容量已满，自动保存失败！请及时导出备份 JSON 文件。', 'danger');
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -1682,8 +1843,16 @@
    * 导出与导入数据
    */
   function handleExportJSON() {
+    const exportData = {
+      title: state.title,
+      groupId: state.groupId,
+      status: state.status,
+      currentRoundIndex: state.currentRoundIndex,
+      players: state.players,
+      rounds: state.rounds
+    };
     const filename = `${state.title.replace(/[\s\/\\:*?"<>|]/g, '_')}_轮次${state.rounds.length}.json`;
-    TournamentStorage.exportToFile(state, filename);
+    TournamentStorage.exportToFile(exportData, filename);
     showToast('已开始下载比赛数据备份文件！', 'success');
   }
 
@@ -1694,20 +1863,48 @@
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const parsed = JSON.parse(event.target.result);
-        if (!parsed.players || !Array.isArray(parsed.players)) {
-          throw new Error('无效的赛事数据结构');
+        let parsed;
+        try {
+          parsed = JSON.parse(event.target.result);
+        } catch (jsonErr) {
+          throw new Error('文件不是合法的 JSON 格式');
         }
 
-        Object.assign(state, parsed);
-        saveState();
+        const validation = TournamentStorage.validateTournamentData(parsed);
+        if (!validation.valid) {
+          throw new Error(validation.error || '赛事数据结构校验失败');
+        }
+
+        const sanitized = validation.sanitizedData;
+
+        // 提示用户导入将覆盖当前组数据
+        const groupName = TournamentStorage.getGroupName(state.groupId);
+        if (!confirm(`确定要将导入的数据恢复至当前【${groupName}】吗？\n当前组别现有的数据将被替换。`)) {
+          return;
+        }
+
+        // 应用经过严格校验与清洗的领域数据，绝不导入 isAdmin, isSnapshot 等特权或临时状态
+        state.title = sanitized.title;
+        state.status = sanitized.status;
+        state.players = sanitized.players;
+        state.rounds = sanitized.rounds;
+        state.currentRoundIndex = sanitized.currentRoundIndex;
+        state.historyViewingRound = sanitized.rounds.length || 1;
+        state.isSnapshot = false;
+
+        const saved = saveState();
         closeModal(els.modalDataManage);
         renderApp();
-        showToast('🎉 数据导入成功！比赛已恢复。', 'success');
+        if (saved !== false) {
+          showToast('🎉 数据导入成功！比赛已恢复。', 'success');
+        }
       } catch (err) {
         alert('文件导入失败: ' + err.message);
+      } finally {
+        if (els.inputFileImport) {
+          els.inputFileImport.value = '';
+        }
       }
-      els.inputFileImport.value = '';
     };
     reader.readAsText(file);
   }
@@ -1870,10 +2067,23 @@
 
   function handleTriggerPrintSheet() {
     document.body.classList.add('printing-sheet-mode');
-    window.print();
-    setTimeout(() => {
+    if (els.modalPrintSheet) {
+      els.modalPrintSheet.classList.add('printing-active');
+    }
+
+    const cleanup = () => {
       document.body.classList.remove('printing-sheet-mode');
-    }, 500);
+      if (els.modalPrintSheet) {
+        els.modalPrintSheet.classList.remove('printing-active');
+      }
+      window.removeEventListener('afterprint', cleanup);
+    };
+
+    window.addEventListener('afterprint', cleanup);
+    // 兼容部分无 afterprint 事件的特殊环境
+    setTimeout(cleanup, 1500);
+
+    window.print();
   }
 
   function handleDownloadSheetCSV() {

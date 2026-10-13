@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test_phase1.cjs && node test_phase2.cjs && node test_phase3.cjs && node test_scale.cjs && node test_simulation.js"
   },
   "keywords": [],
   "author": "",
