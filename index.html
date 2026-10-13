@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>棋弈排阵 - 极简国际象棋俱乐部瑞士制编排系统</title>
+  <title>SimpleChessParing - 极简国际象棋俱乐部瑞士制编排系统</title>
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -14,8 +14,8 @@
       <div class="brand">
         <div class="brand-icon">♟️</div>
         <div class="brand-text">
-          <h1 id="appHeaderTitle">棋弈排阵 <span style="font-size:0.75rem; font-weight:normal; opacity:0.7;">俱乐部瑞士制</span></h1>
-          <div class="brand-subtitle" id="tournamentSubtitle">极简一键编排 · 支持中途加人与请假 · 实时积分排行</div>
+          <h1 id="appHeaderTitle">SimpleChessParing</h1>
+          <div class="brand-subtitle" id="tournamentSubtitle">极简瑞士制编排 · 即开即用</div>
         </div>
       </div>
 
@@ -117,9 +117,8 @@
           <div class="card-header">
             <span class="card-title">📝 录入参赛选手名单</span>
             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-              <button class="btn btn-primary btn-sm" id="btnLoadMen20">👦 载入男子名单 (20人)</button>
-              <button class="btn btn-primary btn-sm" id="btnLoadWomen7">👧 载入女子名单 (7人)</button>
-              <button class="btn btn-outline btn-sm" id="btnLoadDemo8">🎲 8人示例</button>
+              <button class="btn btn-outline btn-sm" id="btnLoadDemo8">🎲 载入示例 (8人)</button>
+              <button class="btn btn-outline btn-sm" id="btnLoadDemo20">🎲 载入示例 (20人)</button>
               <button class="btn btn-outline btn-sm" id="btnClearSetupRoster" title="一键清空名单">🧹 清空名单</button>
             </div>
           </div>
@@ -134,7 +133,7 @@
 
             <div class="form-group">
               <label class="form-label" for="setupTournamentTitle">比赛名称 (选填)：</label>
-              <input type="text" class="form-control" id="setupTournamentTitle" placeholder="例如：弈星国际象棋俱乐部周积分赛" value="弈星国际象棋俱乐部周积分赛">
+              <input type="text" class="form-control" id="setupTournamentTitle" placeholder="例如：俱乐部积分赛" value="俱乐部积分赛">
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
@@ -530,12 +529,15 @@
               </label>
             </div>
           </div>
-          <div style="display: flex; gap: 0.5rem;">
-            <button class="btn btn-outline btn-sm" id="btnDownloadSheetCSV">
-              <span>📥</span> 导出 Excel (CSV)
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-primary btn-sm" id="btnTriggerPrintSheet" title="调用系统打印，可直接另存为 PDF 或发送至打印机">
+              <span>🖨️</span> 打印 / 另存为 PDF
             </button>
-            <button class="btn btn-primary btn-sm" id="btnTriggerPrintSheet">
-              <span>🖨️</span> 打印签单 / 另存为 PDF
+            <button class="btn btn-outline btn-sm" id="btnOpenStandalonePrintWindow" title="在新页面独立打开整页签单预览，无遮挡直接打印">
+              <span>📄</span> 独立全屏打印
+            </button>
+            <button class="btn btn-outline btn-sm" id="btnDownloadSheetCSV" title="导出为 Excel / CSV 格式">
+              <span>📥</span> 导出 Excel (CSV)
             </button>
           </div>
         </div>

@@ -15,8 +15,11 @@
   const ACTIVE_GROUP_KEY = 'chesspairing_active_group_v1';
   const GROUPS_STORAGE_KEY = 'chesspairing_groups_v1';
 
+  const DEFAULT_GROUP_ID = 'default';
+  const DEFAULT_GROUP_NAME = '俱乐部积分赛';
+
   /**
-   * 获取所有组别列表 (支持用户自定义新建组别)
+   * 获取所有组别列表 (默认单个“俱乐部积分赛”，支持用户自由添加自定义组)
    */
   function getGroups() {
     try {
@@ -29,8 +32,7 @@
       console.error(e);
     }
     return [
-      { id: 'men', name: '👦 男子组' },
-      { id: 'women', name: '👧 女子组' }
+      { id: DEFAULT_GROUP_ID, name: DEFAULT_GROUP_NAME }
     ];
   }
 
@@ -66,7 +68,7 @@
     let groups = getGroups();
     groups = groups.filter(g => g.id !== groupId);
     if (groups.length === 0) {
-      groups = [{ id: 'men', name: '👦 男子组' }];
+      groups = [{ id: DEFAULT_GROUP_ID, name: DEFAULT_GROUP_NAME }];
     }
     saveGroups(groups);
     clearTournament(groupId);
@@ -79,22 +81,26 @@
   function getGroupName(groupId) {
     const groups = getGroups();
     const found = groups.find(g => g.id === groupId);
-    return found ? found.name : (groupId === 'women' ? '👧 女子组' : '👦 男子组');
+    if (found) return found.name;
+    if (groupId === 'default') return DEFAULT_GROUP_NAME;
+    if (groupId === 'men') return '👦 男子组';
+    if (groupId === 'women') return '👧 女子组';
+    return DEFAULT_GROUP_NAME;
   }
 
   function getStorageKey(groupId) {
-    if (!groupId || groupId === 'default') {
+    if (!groupId || groupId === DEFAULT_GROUP_ID) {
       return BASE_STORAGE_KEY;
     }
     return `${BASE_STORAGE_KEY}_${groupId}`;
   }
 
   /**
-   * 保存当前选中的组别标识 (如 'men', 'women', 或自定义组别ID)
+   * 保存当前选中的组别标识
    */
   function saveActiveGroup(groupId) {
     try {
-      localStorage.setItem(ACTIVE_GROUP_KEY, groupId || 'men');
+      localStorage.setItem(ACTIVE_GROUP_KEY, groupId || DEFAULT_GROUP_ID);
     } catch (e) {
       console.error(e);
     }
@@ -105,9 +111,9 @@
       const saved = localStorage.getItem(ACTIVE_GROUP_KEY);
       if (saved) return saved;
       const groups = getGroups();
-      return (groups[0] && groups[0].id) || 'men';
+      return (groups[0] && groups[0].id) || DEFAULT_GROUP_ID;
     } catch (e) {
-      return 'men';
+      return DEFAULT_GROUP_ID;
     }
   }
 
@@ -290,7 +296,7 @@
       const payload = {
         v: 1,
         title: data.title || '',
-        groupId: data.groupId || 'men',
+        groupId: data.groupId || DEFAULT_GROUP_ID,
         status: data.status || 'in_progress',
         currentRoundIndex: data.currentRoundIndex || 0,
         players: (data.players || []).map(p => ({
@@ -499,7 +505,7 @@
     const status = allowedStatus.includes(raw.status) ? raw.status : 'setup';
 
     // 3. 组别 ID
-    const groupId = typeof raw.groupId === 'string' && raw.groupId.trim() ? raw.groupId.trim() : 'men';
+    const groupId = typeof raw.groupId === 'string' && raw.groupId.trim() ? raw.groupId.trim() : DEFAULT_GROUP_ID;
 
     // 4. 选手列表验证
     if (!Array.isArray(raw.players)) {

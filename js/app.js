@@ -10,8 +10,8 @@
   // 全局应用状态
   const state = {
     isAdmin: false, // 默认访客模式 (只读)
-    groupId: 'men', // 'men' | 'women'
-    title: '弈星国际象棋俱乐部周积分赛 (男子组)',
+    groupId: 'default',
+    title: '俱乐部积分赛',
     status: 'setup', // 'setup' | 'in_progress' | 'finished'
     players: [],
     rounds: [],
@@ -71,6 +71,7 @@
     els.btnLoadMen20 = document.getElementById('btnLoadMen20');
     els.btnLoadWomen7 = document.getElementById('btnLoadWomen7');
     els.btnLoadDemo8 = document.getElementById('btnLoadDemo8');
+    els.btnLoadDemo20 = document.getElementById('btnLoadDemo20');
     els.btnClearSetupRoster = document.getElementById('btnClearSetupRoster');
 
     // 组别切换器与快照提示横幅
@@ -140,6 +141,7 @@
     els.radioSheetFilled = document.getElementById('radioSheetFilled');
     els.btnDownloadSheetCSV = document.getElementById('btnDownloadSheetCSV');
     els.btnTriggerPrintSheet = document.getElementById('btnTriggerPrintSheet');
+    els.btnOpenStandalonePrintWindow = document.getElementById('btnOpenStandalonePrintWindow');
     els.printableSheetArea = document.getElementById('printableSheetArea');
 
     // 权限与登录
@@ -207,6 +209,7 @@
     if (els.btnLoadMen20) els.btnLoadMen20.addEventListener('click', () => loadRosterPreset('men'));
     if (els.btnLoadWomen7) els.btnLoadWomen7.addEventListener('click', () => loadRosterPreset('women'));
     els.btnLoadDemo8.addEventListener('click', () => loadDemoPreset(8));
+    if (els.btnLoadDemo20) els.btnLoadDemo20.addEventListener('click', () => loadDemoPreset(20));
     if (els.btnClearSetupRoster) {
       els.btnClearSetupRoster.addEventListener('click', () => {
         els.setupPlayerInput.value = '';
@@ -231,6 +234,7 @@
     if (els.radioSheetFilled) els.radioSheetFilled.addEventListener('change', renderPrintableSheet);
     if (els.btnDownloadSheetCSV) els.btnDownloadSheetCSV.addEventListener('click', handleDownloadSheetCSV);
     if (els.btnTriggerPrintSheet) els.btnTriggerPrintSheet.addEventListener('click', handleTriggerPrintSheet);
+    if (els.btnOpenStandalonePrintWindow) els.btnOpenStandalonePrintWindow.addEventListener('click', handleOpenStandalonePrintWindow);
 
     // 打印与分享
     els.btnPrint.addEventListener('click', () => window.print());
@@ -633,7 +637,7 @@
     const paramTab = urlParams.get('tab');
     const paramSheet = urlParams.get('sheet');
 
-    const targetGroup = paramGroup || TournamentStorage.getActiveGroup() || 'men';
+    const targetGroup = paramGroup || TournamentStorage.getActiveGroup() || 'default';
     switchGroup(targetGroup, false);
 
     // 如果是通过链接携带了自定义名单与标题 (Magic Link 快速开赛)
@@ -751,9 +755,10 @@
     btnAdd.addEventListener('click', handleCreateNewGroup);
     els.headerGroupSwitcher.appendChild(btnAdd);
 
-    // 控制模态框中的删除组别按钮展示
+    // 控制模态框中的删除组别按钮展示 (当总组别数大于1时允许删除当前组)
     if (els.boxDeleteCustomGroup) {
-      if (state.groupId !== 'men' && state.groupId !== 'women') {
+      const allGroups = TournamentStorage.getGroups();
+      if (allGroups.length > 1) {
         els.boxDeleteCustomGroup.style.display = 'block';
       } else {
         els.boxDeleteCustomGroup.style.display = 'none';
@@ -775,8 +780,9 @@
 
   function handleDeleteCustomGroup() {
     if (!requireAdmin('删除当前组别')) return;
-    if (state.groupId === 'men' || state.groupId === 'women') {
-      showToast('系统预置的男子组与女子组不可删除！', 'warning');
+    const allGroups = TournamentStorage.getGroups();
+    if (allGroups.length <= 1) {
+      showToast('至少保留一个赛事组别，无法删除！', 'warning');
       return;
     }
     const targetGroupId = state.groupId;
@@ -784,7 +790,7 @@
     if (confirm(`确定要彻底删除【${gName}】及其所有历史轮次数据吗？此操作无法撤销！`)) {
       const remaining = TournamentStorage.deleteGroup(targetGroupId);
       closeModal(els.modalDataManage);
-      const nextGroupId = (remaining[0] && remaining[0].id) || 'men';
+      const nextGroupId = (remaining[0] && remaining[0].id) || 'default';
       // 切组时传入 false，避免在切换前又将已删除的组数据重新保存回 localStorage
       switchGroup(nextGroupId, false);
       renderGroupSwitcher();
@@ -822,9 +828,20 @@
       '陈晨', '赵磊', '孙悦', '周强',
       '吴浩', '郭敏', '黄宇', '徐静'
     ];
+    const names20 = [
+      '胡安蓬', '朱乐逸', '张承楷', '邱子涵', '彭奕超',
+      '王般若', '韩翼阳', '颜旋', '李奥', '马睿含',
+      '梅宇涵', '王子骞', '曾元昊', '陈宇拓', '陈豫谦',
+      '赵胤训', '梅书涵', '程佑滔', '徐伯逸', '张隽恺'
+    ];
 
-    const list = count === 12 ? names12 : names8;
-    els.setupPlayerInput.value = list.join('\n');
+    let list = names8;
+    if (count === 20) list = names20;
+    else if (count === 12) list = names12;
+
+    if (els.setupPlayerInput) {
+      els.setupPlayerInput.value = list.join('\n');
+    }
     showToast(`已填入 ${count} 人选手名单，点击下方按钮即可一键开始！`, 'info');
   }
 
@@ -1031,7 +1048,7 @@
               <span class="board-sub">轮空台</span>
             </div>
             <div class="player-side white">
-              <div class="chess-piece-badge piece-white">♔</div>
+              <span class="piece-dot" title="轮空执白">⚪</span>
               <div class="player-details">
                 <span class="player-name">${escapeHtml(match.playerName)}</span>
                 <span class="player-meta">
@@ -1110,7 +1127,7 @@
 
           <!-- 白方 -->
           <div class="player-side white">
-            <div class="chess-piece-badge piece-white" title="白方执先">⚪ ♔</div>
+            <span class="piece-dot" title="白方执先">⚪</span>
             <div class="player-details">
               <div class="player-name" title="${escapeHtml(match.whiteName)}">${escapeHtml(match.whiteName)}</div>
               <div class="player-meta">
@@ -1125,7 +1142,7 @@
 
           <!-- 黑方 -->
           <div class="player-side black">
-            <div class="chess-piece-badge piece-black" title="黑方后手">⚫ ♚</div>
+            <span class="piece-dot" title="黑方后手">⚫</span>
             <div class="player-details">
               <div class="player-name" title="${escapeHtml(match.blackName)}">${escapeHtml(match.blackName)}</div>
               <div class="player-meta">
@@ -1913,14 +1930,14 @@
    * 重置当前比赛
    */
   function handleResetTournament() {
-    const groupName = state.groupId === 'men' ? '男子组' : '女子组';
+    const groupName = TournamentStorage.getGroupName(state.groupId);
     if (confirm(`⚠️ 确定要清空当前【${groupName}】的所有比赛数据并开始全新的比赛吗？此操作不可逆！`)) {
       TournamentStorage.clearTournament(state.groupId);
       state.status = 'setup';
       state.players = [];
       state.rounds = [];
       state.currentRoundIndex = 0;
-      state.title = state.groupId === 'men' ? '弈星国际象棋俱乐部周积分赛 (男子组)' : '弈星国际象棋俱乐部周积分赛 (女子组)';
+      state.title = groupName;
       renderApp();
       closeModal(els.modalDataManage);
       showToast(`${groupName}比赛已重置，请输入新棋手名单开启新比赛。`, 'info');
@@ -1959,7 +1976,8 @@
     if (!round) return;
 
     const isBlank = els.radioSheetBlank.checked;
-    const groupLabel = state.groupId === 'men' ? '男子组' : (state.groupId === 'women' ? '女子组' : '');
+    const groupName = TournamentStorage.getGroupName(state.groupId);
+    const groupLabel = (state.groupId !== 'default' && !state.title.includes(groupName)) ? groupName : '';
     const currentDate = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 
     let html = `
@@ -2071,7 +2089,10 @@
       els.modalPrintSheet.classList.add('printing-active');
     }
 
+    let cleaned = false;
     const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
       document.body.classList.remove('printing-sheet-mode');
       if (els.modalPrintSheet) {
         els.modalPrintSheet.classList.remove('printing-active');
@@ -2080,10 +2101,87 @@
     };
 
     window.addEventListener('afterprint', cleanup);
-    // 兼容部分无 afterprint 事件的特殊环境
-    setTimeout(cleanup, 1500);
+    // 宽松的保护超时 (30秒)，避免打印预览还在加载或用户正在调参数时被过早撤销样式
+    setTimeout(cleanup, 30000);
 
     window.print();
+  }
+
+  function handleOpenStandalonePrintWindow() {
+    const roundNum = parseInt(els.selectPrintSheetRound.value, 10);
+    const round = state.rounds[roundNum - 1];
+    if (!round) {
+      showToast('暂无该轮次签单可打印！', 'warning');
+      return;
+    }
+    const sheetHtml = els.printableSheetArea ? els.printableSheetArea.innerHTML : '';
+    const win = window.open('', '_blank');
+    if (!win) {
+      showToast('浏览器阻止了弹出窗口，请在地址栏允许弹出窗口后重试！', 'warning');
+      return;
+    }
+    win.document.open();
+    win.document.write(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>${escapeHtml(state.title)} - 第 ${roundNum} 轮对阵签单</title>
+  <style>
+    @page { size: A4 landscape; margin: 8mm 10mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #ffffff;
+      color: #000000;
+      padding: 16px;
+    }
+    .no-print-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f7f7f7;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      border: 1px solid #e5e5e5;
+    }
+    .no-print-bar button {
+      padding: 7px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 6px;
+      border: none;
+    }
+    .btn-print { background: #07c160; color: #fff; }
+    .btn-close { background: #e5e5e5; color: #191919; margin-left: 8px; }
+    @media print {
+      .no-print-bar { display: none !important; }
+      body { padding: 0 !important; }
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid #000; padding: 6px 8px; text-align: center; }
+    th { background: #f7f7f7; }
+    .signature-blank { display: inline-block; width: 60px; height: 18px; border-bottom: 1px solid #000; }
+  </style>
+</head>
+<body>
+  <div class="no-print-bar">
+    <div><strong>📑 独立签单预览与打印</strong>（可在浏览器打印面板中选择“目标打印机”为【另存为 PDF】）</div>
+    <div>
+      <button class="btn-print" onclick="window.print()">🖨️ 打印 / 另存为 PDF</button>
+      <button class="btn-close" onclick="window.close()">✕ 关闭</button>
+    </div>
+  </div>
+  ${sheetHtml}
+  <script>
+    window.addEventListener('load', () => {
+      setTimeout(() => { window.print(); }, 250);
+    });
+  <\/script>
+</body>
+</html>`);
+    win.document.close();
   }
 
   function handleDownloadSheetCSV() {
