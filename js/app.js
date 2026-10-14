@@ -491,7 +491,9 @@
       }
     }
 
-    const title = els.setupTournamentTitle.value.trim() || `${TournamentStorage.getGroupName(state.groupId)} 积分赛`;
+    const groupName = TournamentStorage.getGroupName(state.groupId);
+    const defaultTitle = groupName.includes('赛') ? groupName : `${groupName} 积分赛`;
+    const title = els.setupTournamentTitle.value.trim() || defaultTitle;
     state.title = title;
 
     // 构建选手列表
@@ -509,6 +511,12 @@
       state.currentRoundIndex = 0;
       state.status = 'in_progress';
       state.historyViewingRound = 1;
+      state.activeTab = 'tabPairing';
+
+      // 本地发起开赛的用户自动成为裁判管理员，便于立即录入比分和操作编排
+      state.isAdmin = true;
+      localStorage.setItem('chesspairing_admin_auth', 'true');
+      updateAuthUI();
 
       saveState();
       renderApp();
@@ -558,7 +566,8 @@
       showToast(`已切换至【${TournamentStorage.getGroupName(groupId)}】比赛`, 'info');
     } else {
       // 当前组别尚未开始比赛
-      state.title = `${TournamentStorage.getGroupName(groupId)} 积分赛`;
+      const gName = TournamentStorage.getGroupName(groupId);
+      state.title = gName.includes('赛') ? gName : `${gName} 积分赛`;
       state.status = 'setup';
       state.players = [];
       state.rounds = [];
@@ -940,13 +949,26 @@
       renderPlayersManage();
     } else if (state.activeTab === 'tabStandings') {
       renderStandings();
+    } else if (state.activeTab === 'tabPairing') {
+      renderPairings();
+    }
+
+    const currentRound = (state.rounds && state.rounds.length > 0) ? state.rounds[state.currentRoundIndex] : null;
+    const hasAnyResult = currentRound && currentRound.pairings && currentRound.pairings.some(m => !m.isBye && m.result !== null);
+    const roundNum = currentRound ? currentRound.roundNumber : 1;
+
+    let regenTip = '';
+    if (currentRound && !hasAnyResult) {
+      regenTip = ` 点击【重新编排本轮】可立即将新选手编入第 ${roundNum} 轮！`;
+    } else if (currentRound) {
+      regenTip = ' 将在下一轮自动参与配对。';
     }
 
     if (added.length === 1) {
-      showToast(`🎉 选手【${added[0]}】已成功入场 (初始0分)！将在下一轮自动配对。`, 'success');
+      showToast(`🎉 选手【${added[0]}】已成功入场 (初始0分)！${regenTip}`, 'success');
     } else {
       const skipNote = skipped.length > 0 ? ` (已跳过 ${skipped.length} 名重复)` : '';
-      showToast(`🎉 成功批量增补 ${added.length} 名选手入场 (均初始0分)${skipNote}！将在下一轮自动配对。`, 'success');
+      showToast(`🎉 成功增补 ${added.length} 名选手入场 (初始0分)${skipNote}！${regenTip}`, 'success');
     }
 
     return true;
@@ -1076,12 +1098,45 @@
       els.bannerLeavePlayers.style.display = 'none';
     }
 
-    // 检查是否有配对警告
-    if (currentRound.warning) {
+    // 检查是否有未编排入本轮的活跃选手 (如中途增补的选手)
+    const activePlayers = state.players.filter(p => p.status !== 'leave' && p.active !== false);
+    const pairedIds = new Set();
+    currentRound.pairings.forEach(m => {
+      if (m.isBye) {
+        pairedIds.add(m.whiteId || m.playerId);
+      } else {
+        pairedIds.add(m.whiteId);
+        pairedIds.add(m.blackId);
+      }
+    });
+    const unassignedPlayers = activePlayers.filter(p => !pairedIds.has(p.id));
+
+    if (unassignedPlayers.length > 0) {
+      const hasAnyResult = currentRound.pairings.some(m => !m.isBye && m.result !== null);
+      const namesStr = unassignedPlayers.map(p => `【${escapeHtml(p.name)}】`).join('、');
+      const actionText = hasAnyResult
+        ? `当前已有台次录入比分。新选手将在下一轮自动配对；若需纳入本轮，可点击下方【🔄 重新编排本轮】（将清空本轮比分）。`
+        : `第 ${roundNum} 轮尚未正式开赛，点击下方【🔄 重新编排本轮】即可立即将新选手编入本轮对阵！`;
+
       els.bannerPairingNotice.style.display = 'flex';
-      els.bannerPairingNoticeText.textContent = currentRound.warning;
+      els.bannerPairingNotice.className = 'alert-banner alert-warning';
+      els.bannerPairingNoticeText.innerHTML = `⚠️ <strong>新选手未编排提醒：</strong>检测到新加入选手 ${namesStr} 尚未编入第 ${roundNum} 轮对阵。<br><span style="font-size:0.85rem; opacity:0.9;">${actionText}</span>`;
+      if (els.btnRegenerateCurrentRound) {
+        els.btnRegenerateCurrentRound.classList.add('btn-warning');
+        els.btnRegenerateCurrentRound.innerHTML = `<span>🔄</span> 重新编排本轮 (含${unassignedPlayers.length}名新选手)`;
+      }
     } else {
-      els.bannerPairingNotice.style.display = 'none';
+      if (els.btnRegenerateCurrentRound) {
+        els.btnRegenerateCurrentRound.classList.remove('btn-warning');
+        els.btnRegenerateCurrentRound.innerHTML = `<span>🔄</span> 重新编排本轮`;
+      }
+      if (currentRound.warning) {
+        els.bannerPairingNotice.style.display = 'flex';
+        els.bannerPairingNotice.className = 'alert-banner alert-info';
+        els.bannerPairingNoticeText.textContent = currentRound.warning;
+      } else {
+        els.bannerPairingNotice.style.display = 'none';
+      }
     }
 
     // 渲染各台次卡片
@@ -1319,7 +1374,9 @@
       state.rounds[state.currentRoundIndex] = newPairing;
       saveState();
       renderApp();
-      showToast(`第 ${roundNum} 轮已重新编排完成！`, 'success');
+      renderPairings();
+      const byeInfo = newPairing.byePlayer ? '，含 1 人轮空获胜' : '';
+      showToast(`第 ${roundNum} 轮已重新编排完成！共 ${newPairing.pairings.length} 台${byeInfo}`, 'success');
     } catch (err) {
       showToast('重新编排失败: ' + err.message, 'danger');
     }
@@ -1720,8 +1777,18 @@
    * 更新顶栏比赛状态与人数徽章
    */
   function updateHeaderStats() {
-    els.appHeaderTitle.querySelector('span').textContent = state.title;
-    els.printTitle.textContent = state.title;
+    if (els.appHeaderTitle) {
+      const span = els.appHeaderTitle.querySelector('span');
+      if (span) {
+        span.textContent = state.title;
+      }
+    }
+    if (els.tournamentSubtitle) {
+      els.tournamentSubtitle.textContent = state.title ? `${state.title} · 即开即用` : '极简瑞士制编排 · 即开即用';
+    }
+    if (els.printTitle) {
+      els.printTitle.textContent = state.title;
+    }
 
     if (state.status === 'setup') {
       els.badgeRoundStatus.textContent = '准备中';

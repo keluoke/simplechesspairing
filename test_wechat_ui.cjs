@@ -106,7 +106,7 @@ function createSandbox(url = 'http://localhost/index.html') {
   vm.createContext(ctx);
   const appSource = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8').replace(
     "document.addEventListener('DOMContentLoaded', init);",
-    'globalThis.App = { state, els, cacheDom, renderPairings, handleOpenStandalonePrintWindow, switchGroup, handleAddPlayer, parsePlayerNames };'
+    'globalThis.App = { state, els, cacheDom, renderPairings, handleOpenStandalonePrintWindow, switchGroup, handleAddPlayer, parsePlayerNames, handleRegenerateCurrentRound, updateHeaderStats, handleStartTournament };'
   );
   vm.runInContext(appSource, ctx);
   ctx.App.cacheDom();
@@ -225,6 +225,52 @@ function runTests() {
     assert.strictEqual(c.App.state.players[10].name, '梅宇涵');
 
     console.log('  ✅ Passed Batch Adding Players checks (Whitespace & Newline detection)');
+  }
+
+  // Test 6: Round 1 visibility, no header span crash, and mid-round regeneration
+  console.log('Test 6: Round 1 pairing visibility and re-pairing with newly added players');
+  {
+    const c = createSandbox();
+    // Simulate real DOM where #appHeaderTitle has NO span
+    c.App.els.appHeaderTitle = {
+      querySelector(sel) {
+        if (sel === 'span') return null; // Real DOM scenario
+        return null;
+      }
+    };
+
+    // 1. updateHeaderStats does not throw when span is null
+    assert.doesNotThrow(() => {
+      c.App.updateHeaderStats();
+    }, 'updateHeaderStats must never throw when appHeaderTitle has no span');
+
+    // 2. Start a tournament with 4 players
+    c.App.els.setupPlayerInput.value = '张伟\n王芳\n李明\n刘洋';
+    c.App.handleStartTournament();
+
+    assert.strictEqual(c.App.state.status, 'in_progress', 'Tournament must be in progress');
+    assert.strictEqual(c.App.state.rounds.length, 1, 'Must have 1 round');
+    assert.strictEqual(c.App.state.rounds[0].pairings.length, 2, 'Round 1 must have 2 boards for 4 players');
+    assert.strictEqual(c.App.state.isAdmin, true, 'Tournament creator must have admin privileges');
+
+    // 3. Add 2 new players mid-round in Round 1
+    c.App.state.activeTab = 'tabPairing';
+    c.App.handleAddPlayer('孙小明 赵小刚');
+    assert.strictEqual(c.App.state.players.length, 6, 'Total players must now be 6');
+
+    // 4. renderPairings detects unassigned players and updates regenerate button
+    c.App.renderPairings();
+    assert.ok(c.App.els.bannerPairingNoticeText.innerHTML.includes('孙小明'), 'Notice banner must mention newly added player');
+    assert.ok(c.App.els.btnRegenerateCurrentRound.innerHTML.includes('含2名新选手'), 'Regenerate button must mention 2 new players');
+
+    // 5. Re-generate Round 1 to include all 6 players
+    c.App.handleRegenerateCurrentRound();
+    assert.strictEqual(c.App.state.rounds[0].pairings.length, 3, 'Round 1 must now have 3 boards for 6 players');
+    const allBoardNames = c.App.state.rounds[0].pairings.flatMap(p => [p.whiteName, p.blackName]);
+    assert.ok(allBoardNames.includes('孙小明'), 'Sun Xiaoming must be paired in Round 1');
+    assert.ok(allBoardNames.includes('赵小刚'), 'Zhao Xiaogang must be paired in Round 1');
+
+    console.log('  ✅ Passed Round 1 Visibility & Mid-Round Re-pairing checks');
   }
 
   console.log('\n🎉 ALL WeChat Minimalist UI & Feature Verification Tests passed successfully!\n');
