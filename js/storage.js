@@ -190,10 +190,10 @@
     let csv = '\uFEFF'; // Excel UTF-8 BOM 防中文乱码
     csv += `${escapeCSVField(tournamentTitle || '国际象棋俱乐部积分赛')}\n`;
     csv += `${escapeCSVField(`第 ${roundNumber} 轮 对阵与成绩确认签单`)}\n`;
-    csv += `${escapeCSVField(`导出时间: ${new Date().toLocaleString()}`)},${escapeCSVField('裁判长/编排: 瑞士制')}\n\n`;
+    csv += `${escapeCSVField('比赛日期: ______年___月___日')},${escapeCSVField('编排方式: 瑞士制')}\n\n`;
 
-    // 表头：包含赛果与双方签字、复核签字
-    const headers = ['台次', '白方棋手', '白方当前分', '赛果比分', '黑方当前分', '黑方棋手', '白方签字', '黑方签字', '复核/裁判签字'];
+    // 表头：包含赛果与双方签字
+    const headers = ['台次', '白方棋手', '白方当前分', '赛果比分', '黑方当前分', '黑方棋手', '白方签字', '黑方签字'];
     csv += headers.map(escapeCSVField).join(',') + '\n';
 
     pairings.forEach(p => {
@@ -206,8 +206,7 @@
           '-',
           '(轮空)',
           '免赛确认',
-          '免赛确认',
-          '已核'
+          '免赛确认'
         ];
         csv += row.map(escapeCSVField).join(',') + '\n';
       } else {
@@ -219,7 +218,6 @@
           res,
           `${p.blackScore}分`,
           p.blackName,
-          '________',
           '________',
           '________'
         ];

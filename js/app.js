@@ -2123,7 +2123,7 @@
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #334155; padding: 0 0.5rem; border-bottom: 2px solid #000; padding-bottom: 0.4rem;">
           <span><strong>轮次:</strong> 第 ${roundNum} 轮 / 共 ${state.rounds.length} 轮</span>
-          <span><strong>对局日期:</strong> ${currentDate}</span>
+          <span><strong>比赛日期:</strong> ______年___月___日</span>
           <span><strong>编排方式:</strong> 瑞士制</span>
           <span><strong>裁判长确认签字:</strong> __________________</span>
         </div>
@@ -2132,15 +2132,14 @@
       <table class="sign-sheet-table">
         <thead>
           <tr>
-            <th style="width: 45px;">台次</th>
-            <th style="width: 140px;">⚪ 白方棋手</th>
-            <th style="width: 50px;">当前分</th>
-            <th style="width: 170px;">赛果比分<br><span style="font-size: 0.725rem; font-weight: normal; color: #475569;">(1-0 / ½-½ / 0-1)</span></th>
-            <th style="width: 50px;">当前分</th>
-            <th style="width: 140px;">⚫ 黑方棋手</th>
-            <th style="width: 110px;">白方签字</th>
-            <th style="width: 110px;">黑方签字</th>
-            <th style="width: 80px;">复核签字</th>
+            <th style="width: 50px;">台次</th>
+            <th style="width: 150px;">⚪ 白方棋手</th>
+            <th style="width: 60px;">当前分</th>
+            <th style="width: 180px;">赛果比分<br><span style="font-size: 0.725rem; font-weight: normal; color: #475569;">(1-0 / ½-½ / 0-1)</span></th>
+            <th style="width: 60px;">当前分</th>
+            <th style="width: 150px;">⚫ 黑方棋手</th>
+            <th style="width: 140px;">白方签字</th>
+            <th style="width: 140px;">黑方签字</th>
           </tr>
         </thead>
         <tbody>
@@ -2154,8 +2153,8 @@
             <td colspan="5" style="text-align: left; padding-left: 1.25rem; font-weight: bold; color: #b45309;">
               🎉 <strong>${escapeHtml(p.playerName)}</strong> (当前分: ${p.playerScore}分) —— <strong>轮空获胜 (+1.0分)</strong>
             </td>
-            <td colspan="3" style="font-size: 0.825rem; color: #475569;">
-              免赛确认签字：<span class="signature-blank" style="min-width: 110px;"></span>
+            <td colspan="2" style="font-size: 0.825rem; color: #475569;">
+              免赛确认签字：<span class="signature-blank" style="min-width: 120px;"></span>
             </td>
           </tr>
         `;
@@ -2195,9 +2194,8 @@
             <td style="font-weight: 600; text-align: left; padding-left: 0.75rem;">
               ⚫ ${escapeHtml(p.blackName)}
             </td>
-            <td><span class="signature-blank"></span></td>
-            <td><span class="signature-blank"></span></td>
-            <td><span class="signature-blank" style="min-width: 60px;"></span></td>
+            <td><span class="signature-blank" style="min-width: 90px;"></span></td>
+            <td><span class="signature-blank" style="min-width: 90px;"></span></td>
           </tr>
         `;
       }
@@ -2292,10 +2290,12 @@
       .no-print-bar { display: none !important; }
       body { padding: 0 !important; }
     }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+    thead { display: table-header-group; }
     th, td { border: 1px solid #000; padding: 6px 8px; text-align: center; }
     th { background: #f7f7f7; }
-    .signature-blank { display: inline-block; width: 60px; height: 18px; border-bottom: 1px solid #000; }
+    .signature-blank { display: inline-block; width: 80px; height: 18px; border-bottom: 1px solid #000; }
   </style>
 </head>
 <body>

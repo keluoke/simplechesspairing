@@ -37,6 +37,8 @@ function createSandbox(url = 'http://localhost/index.html') {
       setAttribute() {},
       getAttribute() { return null; },
       appendChild(c) { return c; },
+      removeChild(c) { return c; },
+      click() {},
       querySelectorAll() { return []; },
       querySelector() { return createElement(); },
       addEventListener() {},
@@ -97,16 +99,18 @@ function createSandbox(url = 'http://localhost/index.html') {
     URL,
     URLSearchParams,
     SwissEngine,
-    TournamentStorage: Storage,
     console,
     setTimeout,
     clearTimeout
   };
 
   vm.createContext(ctx);
+  for (const f of ['swiss.js', 'storage.js']) {
+    vm.runInContext(fs.readFileSync(path.join(root, 'js', f), 'utf8'), ctx);
+  }
   const appSource = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8').replace(
     "document.addEventListener('DOMContentLoaded', init);",
-    'globalThis.App = { state, els, cacheDom, renderPairings, handleOpenStandalonePrintWindow, switchGroup, handleAddPlayer, parsePlayerNames, handleRegenerateCurrentRound, updateHeaderStats, handleStartTournament };'
+    'globalThis.App = { state, els, cacheDom, renderPairings, handleOpenStandalonePrintWindow, switchGroup, handleAddPlayer, parsePlayerNames, handleRegenerateCurrentRound, updateHeaderStats, handleStartTournament, renderPrintableSheet };'
   );
   vm.runInContext(appSource, ctx);
   ctx.App.cacheDom();
@@ -175,24 +179,45 @@ function runTests() {
     assert.ok(css.includes('overflow-y: auto'), 'modal-backdrop and modal-body must have overflow-y auto');
     assert.ok(css.includes('--primary: #07c160'), 'WeChat green primary color must be set');
 
-    // Test standalone print window generation
+    assert.ok(css.includes('body.printing-sheet-mode .main-content'), 'main-content must be hidden during print sheet mode to prevent blank pages');
+    assert.ok(!css.includes('body.printing-sheet-mode * {'), 'visibility:hidden must not be used on all elements');
+
+    // Test sheet rendering: no review signature, blank match date
     const c = createSandbox();
     c.App.state.rounds = [
       {
         roundNumber: 1,
         pairings: [
-          { board: 1, whiteId: 1, whiteName: 'Alice', whiteScore: 0, blackId: 2, blackName: 'Bob', blackScore: 0, result: null }
+          { board: 1, whiteId: 1, whiteName: 'Alice', whiteScore: 0, blackId: 2, blackName: 'Bob', blackScore: 0, result: null },
+          { board: 2, isBye: true, playerId: 3, playerName: 'Charlie', playerScore: 0, result: '1-0' }
         ]
       }
     ];
     c.App.els.selectPrintSheetRound.value = '1';
-    c.App.els.printableSheetArea.innerHTML = '<table class="sign-sheet-table"><tr><td>Test Board</td></tr></table>';
+    c.App.renderPrintableSheet();
 
+    const sheetHtml = c.App.els.printableSheetArea.innerHTML;
+    assert.ok(!sheetHtml.includes('复核签字'), 'Sign sheet must not have review signature column');
+    assert.ok(sheetHtml.includes('白方签字') && sheetHtml.includes('黑方签字'), 'Sign sheet must have white and black signature columns');
+    assert.ok(sheetHtml.includes('比赛日期:') && sheetHtml.includes('年') && !sheetHtml.includes('对局日期:'), 'Sign sheet match date must be blank');
+
+    // Test CSV export: no review signature, blank match date
+    let exportedCsv = '';
+    c.Blob = class {
+      constructor(parts) { exportedCsv = parts.join(''); }
+    };
+    c.URL.createObjectURL = () => 'blob:test';
+    c.URL.revokeObjectURL = () => {};
+    c.TournamentStorage.exportPairingsToCSV('Test Tournament', 1, c.App.state.rounds[0].pairings, true);
+    assert.ok(!exportedCsv.includes('复核'), 'CSV export must not include review signature');
+    assert.ok(exportedCsv.includes('比赛日期: ______年___月___日'), 'CSV export must have blank match date');
+
+    // Test standalone print window generation
     c.App.handleOpenStandalonePrintWindow();
     assert.ok(c._lastWrittenPrintHtml, 'handleOpenStandalonePrintWindow must write HTML into popup window');
     assert.ok(c._lastWrittenPrintHtml.includes('独立签单预览与打印'), 'Popup HTML must contain standalone print header');
     assert.ok(c._lastWrittenPrintHtml.includes('window.print()'), 'Popup HTML must trigger window.print()');
-    console.log('  ✅ Passed Modal Scrollability & Standalone Print checks');
+    console.log('  ✅ Passed Modal Scrollability & Standalone Print checks (No blank pages, clean columns & blank date)');
   }
 
   // Test 5: Batch adding players with whitespace, newlines, and commas

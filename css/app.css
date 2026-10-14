@@ -1042,17 +1042,20 @@ body {
     color: #000000 !important;
   }
 
-  /* 专门针对签单打印容器优化 */
-  body.printing-sheet-mode * {
-    visibility: hidden;
+  /* 专门针对签单打印优化：隐藏主体与所有非签单组件，彻底杜绝前面空白页，从第1页顶端直接开始打印 */
+  body.printing-sheet-mode {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
-  body.printing-sheet-mode .modal-backdrop.printing-active,
-  body.printing-sheet-mode .modal-backdrop.printing-active .modal-dialog,
-  body.printing-sheet-mode .modal-backdrop.printing-active .modal-body,
-  body.printing-sheet-mode #printableSheetArea,
-  body.printing-sheet-mode #printableSheetArea * {
-    visibility: visible;
+  body.printing-sheet-mode .app-header,
+  body.printing-sheet-mode .nav-tabs,
+  body.printing-sheet-mode .main-content,
+  body.printing-sheet-mode .toast-container,
+  body.printing-sheet-mode .modal-backdrop:not(.printing-active) {
+    display: none !important;
   }
 
   body.printing-sheet-mode .modal-backdrop.printing-active {
@@ -1062,6 +1065,7 @@ body {
     padding: 0 !important;
     margin: 0 !important;
     width: 100% !important;
+    box-shadow: none !important;
   }
 
   @page {
@@ -1084,6 +1088,7 @@ body {
     max-height: none !important;
     overflow: visible !important;
     padding: 0 !important;
+    margin: 0 !important;
   }
 
   body.printing-sheet-mode .modal-header,
@@ -1096,11 +1101,26 @@ body {
     position: static !important;
     width: 100% !important;
     margin: 0 !important;
-    padding: 4mm 6mm !important;
+    padding: 0 !important;
     border: none !important;
     background: #ffffff !important;
     color: #000000 !important;
     display: block !important;
+  }
+
+  .sign-sheet-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto;
+  }
+
+  .sign-sheet-table tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  .sign-sheet-table thead {
+    display: table-header-group !important;
   }
 
   .main-content {
